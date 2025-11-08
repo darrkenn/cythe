@@ -18,6 +18,13 @@ hmac = "0.13.0-rc.3"
 sha2 = "0.11.0-rc.3"
 hex = "0.4.3"
 subtle = "2.6.1"
+bollard = "0.19.4"
+futures-util = "0.3.31"
+tar = "0.4.44"
+
+[dependencies.uuid]
+version = "1.18.1"
+features = ["v4"]
 
 [profile.release]
 lto = true
