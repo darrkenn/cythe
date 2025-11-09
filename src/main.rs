@@ -3,15 +3,15 @@ use crate::parse_yml::{create_docker_file, retrieve_yml};
 use axum::{
     Router,
     body::Bytes,
-    http::{HeaderMap, StatusCode, status},
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::post,
 };
 use bollard::{
     Docker, body_full,
     query_parameters::{
-        BuildImageOptionsBuilder, CreateContainerOptions, CreateContainerOptionsBuilder,
-        RemoveContainerOptions, StartContainerOptions, WaitContainerOptions,
+        BuildImageOptionsBuilder, CreateContainerOptionsBuilder, RemoveContainerOptions,
+        StartContainerOptions, WaitContainerOptions,
     },
     secret::ContainerCreateBody,
 };
@@ -52,7 +52,7 @@ async fn webhook(headers: HeaderMap, body: Bytes) -> impl IntoResponse {
         }
     };
 
-    if !verifiy_signature(&secret, signature, &body[..]) {
+    if !verify_signature(&secret, signature, &body[..]) {
         warn!("Received a request with an invalid signature");
         return (StatusCode::UNAUTHORIZED, "").into_response();
     }
@@ -79,20 +79,21 @@ async fn webhook(headers: HeaderMap, body: Bytes) -> impl IntoResponse {
             }
         };
 
-        let cythe_yml =
-            match retrieve_yml(payload.repository.full_name, tracked_branch.to_string()).await {
-                Ok(cy) => cy,
-                Err(e) => {
-                    error!("Error when retrieving cythe.yml: {e}");
-                    return;
-                }
-            };
+        let cythe_yml = match retrieve_yml(
+            payload.repository.full_name,
+            tracked_branch.to_string(),
+            "https://raw.githubusercontent.com".to_string(),
+        )
+        .await
+        {
+            Ok(cy) => cy,
+            Err(e) => {
+                error!("Error when retrieving cythe.yml: {e}");
+                return;
+            }
+        };
         if cythe_yml.track == tracked_branch {
-            let docker_file = match create_docker_file(
-                payload.repository.html_url,
-                tracked_branch.to_string(),
-                cythe_yml,
-            ) {
+            let docker_file = match create_docker_file(payload.repository.html_url, cythe_yml) {
                 Ok(df) => df,
                 Err(e) => {
                     error!("{e}");
@@ -101,7 +102,7 @@ async fn webhook(headers: HeaderMap, body: Bytes) -> impl IntoResponse {
             };
             println!("{docker_file}");
 
-            runner(docker_file).await;
+            let _ = runner(docker_file).await;
         }
     });
 
@@ -181,7 +182,7 @@ async fn runner(docker_file: String) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn verifiy_signature(secret: &str, signature: &str, body_bytes: &[u8]) -> bool {
+fn verify_signature(secret: &str, signature: &str, body_bytes: &[u8]) -> bool {
     let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {
         Ok(m) => m,
         Err(e) => {
@@ -235,4 +236,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app).await.unwrap();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SECRET: &str = "9e989623257bb798879f668168fa1f3efbfce4c458a985896ef1d414fd6e733c";
+    const BODY: &str = "test";
+
+    #[tokio::test]
+    async fn test_succesful_signature_verification() {
+        let signature = "sha256=6b1f54cb6c6305de8a244a2e8e201ed9df89a194d83c4d290c45932c9229b3a8";
+        assert!(verify_signature(SECRET, signature, BODY.as_bytes()));
+    }
+
+    #[tokio::test]
+    async fn test_unsuccesful_signature_verifcation() {
+        let signature = "sha256=4a2e8e201ed9df89a194d83c4d290c45932c9229b3a814244214214124214241";
+        assert!(!verify_signature(SECRET, signature, BODY.as_bytes()))
+    }
 }
