@@ -1,6 +1,9 @@
+use std::path::Path;
+
+use git2::{BranchType, Repository};
 use log::error;
-use reqwest::Client;
 use serde::Deserialize;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct Step {
@@ -12,19 +15,28 @@ pub struct Step {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CytheYML {
+pub struct CytheYAML {
     pub base: String,
     pub track: String,
     pub steps: Vec<Step>,
 }
 
 #[derive(Debug)]
+pub enum GitError {
+    CloneFailed(String),
+    BranchError(String),
+    CommitError(String),
+    TreeError(String),
+    BlobError(String),
+    ObjectError(String),
+    Utf8Error,
+}
+
+#[derive(Debug)]
 pub enum YamlError {
     NotAUseCommand(String),
-    NotFound,
-    NonSuccessStatus(u16),
     CantParse(String),
-    NotReadable(String),
+    Git(GitError),
 }
 
 impl std::fmt::Display for YamlError {
@@ -33,27 +45,27 @@ impl std::fmt::Display for YamlError {
             YamlError::NotAUseCommand(s) => {
                 write!(f, "The following is not an internal command: {}", s)
             }
-            YamlError::NotFound => write!(f, "cythe.yml not found"),
-            YamlError::NonSuccessStatus(s) => write!(f, "Non success status: {}", s),
             YamlError::CantParse(s) => write!(f, "{}", s),
-            YamlError::NotReadable(s) => write!(f, "{}", s),
+            YamlError::Git(s) => write!(f, "Git Error {}", s),
         }
     }
 }
 
-impl std::error::Error for YamlError {
-    fn description(&self) -> &str {
+impl ::std::fmt::Display for GitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            YamlError::NotAUseCommand(s) => s,
-            YamlError::NotFound => "cythe.yml not found",
-            YamlError::NonSuccessStatus(_) => "non successfull status",
-            YamlError::CantParse(s) => s,
-            YamlError::NotReadable(s) => s,
+            GitError::CloneFailed(s) => write!(f, "Clone failed: {}", s),
+            GitError::BranchError(s) => write!(f, "Branch Error: {}", s),
+            GitError::CommitError(s) => write!(f, "Commit Error: {}", s),
+            GitError::TreeError(s) => write!(f, "Tree Error: {}", s),
+            GitError::BlobError(s) => write!(f, "Blob Error: {}", s),
+            GitError::ObjectError(s) => write!(f, "Object Error: {}", s),
+            GitError::Utf8Error => write!(f, "Utf8 Error"),
         }
     }
 }
 
-pub fn create_docker_file(git_url: String, cythe_yml: CytheYML) -> Result<String, YamlError> {
+pub fn create_docker_file(git_url: String, cythe_yml: CytheYAML) -> Result<String, YamlError> {
     let mut docker_file = format!("FROM {}\nWORKDIR /app\n", cythe_yml.base);
 
     for step in cythe_yml.steps {
@@ -69,10 +81,25 @@ pub fn create_docker_file(git_url: String, cythe_yml: CytheYML) -> Result<String
             docker_file.push_str(&format!("RUN {}\n", run));
         }
         if let Some(entrypoint) = step.entrypoint {
-            docker_file.push_str(&format!(r#"ENTRYPOINT ["sh", "-c", "{}"]"#, entrypoint))
+            docker_file.push_str(&format!(
+                "ENTRYPOINT [\"sh\", \"-c\", \"{}\"]\n",
+                entrypoint
+            ))
         }
         if let Some(cmd) = step.cmd {
-            docker_file.push_str(&format!("CMD ['{}']", cmd))
+            let parts = cmd.split_whitespace().collect::<Vec<_>>();
+            let cmd = parts
+                .iter()
+                .map(|p| {
+                    if p.starts_with('"') && p.ends_with('"') {
+                        p.to_string()
+                    } else {
+                        format!("\"{}\"", p)
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join(", ");
+            docker_file.push_str(&format!("CMD [{}]\n", cmd))
         }
     }
 
@@ -84,43 +111,58 @@ pub async fn retrieve_yml(
     tracked_branch: String,
     //Git Hosting Platform URL
     ghp_url: String,
-) -> Result<CytheYML, YamlError> {
-    let url = format!(
-        "{}/{}/{}/cythe.yml",
-        ghp_url, repo_full_name, tracked_branch
-    );
-    let response = match Client::new()
-        .get(&url)
-        .header("Cache-Control", "no-cache")
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            error!("Network error while retrieving cythe.yml: {e}");
-            println!("{e}");
-            return Err(YamlError::NotFound);
-        }
-    };
-    if response.status() != 200 {
-        error!(
-            "Github responded with a non 200 status: {}",
-            response.status()
-        );
-        return Err(YamlError::NonSuccessStatus(response.status().as_u16()));
-    };
+) -> Result<CytheYAML, YamlError> {
+    let repo_url = format!("{}/{}.git", ghp_url, repo_full_name);
+    let temp_path = format!("/tmp/cythe-{}", Uuid::new_v4());
 
-    match response.text().await {
-        Ok(t) => match serde_yaml::from_str::<CytheYML>(&t) {
-            Ok(c) => Ok(c),
-            Err(e) => {
-                error!("Cant parse cythe.yml: {e}");
-                Err(YamlError::CantParse(e.to_string()))
-            }
-        },
+    let repo = Repository::clone(&repo_url, &temp_path).map_err(|e| {
+        error!("{e}");
+        YamlError::Git(GitError::CloneFailed(e.to_string()))
+    })?;
+
+    let reference = repo
+        .find_branch(&tracked_branch, BranchType::Local)
+        .map_err(|e| {
+            error!("{e}");
+            YamlError::Git(GitError::BranchError(e.to_string()))
+        })?
+        .into_reference();
+
+    let commit = reference.peel_to_commit().map_err(|e| {
+        error!("{e}");
+        YamlError::Git(GitError::CommitError(e.to_string()))
+    })?;
+
+    let tree = commit.tree().map_err(|e| {
+        error!("{e}");
+        YamlError::Git(GitError::TreeError(e.to_string()))
+    })?;
+
+    let tree_entry = tree.get_path(Path::new("cythe.yml")).map_err(|e| {
+        error!("{e}");
+        YamlError::Git(GitError::BlobError(e.to_string()))
+    })?;
+
+    let object = tree_entry.to_object(&repo).map_err(|e| {
+        error!("{e}");
+        YamlError::Git(GitError::ObjectError(e.to_string()))
+    })?;
+
+    let blob = object.as_blob().ok_or_else(|| {
+        error!("cythe.yml is not a file");
+        YamlError::Git(GitError::BlobError("cythe.yml is not a file".to_string()))
+    })?;
+
+    let content = std::str::from_utf8(blob.content()).map_err(|e| {
+        error!("{e}");
+        YamlError::Git(GitError::Utf8Error)
+    })?;
+
+    match serde_yaml::from_str::<CytheYAML>(content) {
+        Ok(c) => Ok(c),
         Err(e) => {
-            error!("Error reading cythe.yml: {e}");
-            Err(YamlError::NotReadable(e.to_string()))
+            error!("Can't parse cythe.yml: {e}");
+            Err(YamlError::CantParse(e.to_string()))
         }
     }
 }
@@ -130,109 +172,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_retrieve_parser_successful() {
-        let mut server = mockito::Server::new_async().await;
-
-        let yaml_content = r#"
-base: rust:slim-trixie
-track: main
-
-steps:
-  - name: Update
-    run: apt update && apt-get install git -y
-
-  - name: Checkout repo
-    use: cythe-checkout
-
-  - name: Build
-    run: cargo build --release
-
-  - name: What
-    run: ls -la ./target/release/ | grep cythe
-
-  - name: Run
-    entrypoint: ./target/release/cythe-test
-"#;
-
-        let _ = server
-            .mock("GET", "/user/repo/main/cythe.yml")
-            .with_status(200)
-            .with_body(yaml_content)
-            .create_async()
-            .await;
-        let server_url = server.url();
-
-        let result = retrieve_yml("user/repo".to_string(), "main".to_string(), server_url)
-            .await
-            .expect("Couldn't retrieve yml");
-        assert_eq!(result.base, "rust:slim-trixie");
-        assert_eq!(result.track, "main");
-
-        assert_eq!(result.steps.len(), 5);
-        assert_eq!(result.steps[0].name, "Update");
-        assert_eq!(result.steps[1].name, "Checkout repo");
-        assert_eq!(result.steps[2].name, "Build");
-        assert_eq!(result.steps[3].name, "What");
-        assert_eq!(result.steps[4].name, "Run");
-    }
-
-    #[tokio::test]
-    async fn test_retrieve_parser_not_found() {
-        let bad_url = "http://127.0.0.1:0".to_string();
-        let result = retrieve_yml("user/repo".to_string(), "main".to_string(), bad_url).await;
-
-        match result {
-            Err(YamlError::NotFound) => {}
-            _ => panic!("Expected error NotFound"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_retrieve_parser_non_success() {
-        let mut server = mockito::Server::new_async().await;
-
-        let _ = server
-            .mock("GET", "/user/repo/main/cythe.yml")
-            .with_status(404)
-            .with_body("Not found")
-            .create_async()
-            .await;
-        let server_url = server.url();
-
-        let result = retrieve_yml("user/repo".to_string(), "main".to_string(), server_url).await;
-
-        match result {
-            Err(YamlError::NonSuccessStatus(code)) => assert_eq!(code, 404),
-            _ => panic!("Expected error NonSuccessStatus"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_retrieve_parser_invalid_yaml() {
-        let mut server = mockito::Server::new_async().await;
-
-        let invalid_yaml = "what: the _: hell is this:_# yaml";
-
-        let _ = server
-            .mock("GET", "/user/repo/main/cythe.yml")
-            .with_status(200)
-            .with_body(invalid_yaml)
-            .create_async()
-            .await;
-        let server_url = server.url();
-
-        let result = retrieve_yml("user/repo".to_string(), "main".to_string(), server_url).await;
-
-        match result {
-            Err(YamlError::CantParse(_)) => {}
-            _ => panic!("Expected error CantParse"),
-        }
-    }
-
-    #[tokio::test]
     async fn test_create_docker_file_successful() {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
-        let cythe_yml = CytheYML {
+        let cythe_yml = CytheYAML {
             base: String::from("rust:slim-trixie"),
             track: String::from("main"),
             steps: vec![
@@ -264,6 +206,13 @@ steps:
                     entrypoint: Some(String::from("./target/release/cythe")),
                     cmd: None,
                 },
+                Step {
+                    name: String::from("test"),
+                    run: None,
+                    r#use: None,
+                    entrypoint: None,
+                    cmd: Some(String::from("echo \"hi\"")),
+                },
             ],
         };
 
@@ -275,12 +224,13 @@ steps:
         assert!(result.contains("RUN git clone --depth=1 https://github.com/darrkenn/cythe ."));
         assert!(result.contains("RUN cargo build --release"));
         assert!(result.contains(r#"ENTRYPOINT ["sh", "-c", "./target/release/cythe"]"#));
+        assert!(result.contains(r#"CMD ["echo", "hi"]"#));
     }
 
     #[tokio::test]
     async fn test_create_docker_file_invalid_use_command() {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
-        let cythe_yml = CytheYML {
+        let cythe_yml = CytheYAML {
             base: String::from("rust:slim-trixie"),
             track: String::from("main"),
             steps: vec![Step {

@@ -1,5 +1,9 @@
+mod docker;
 mod parse_yml;
-use crate::parse_yml::{create_docker_file, retrieve_yml};
+use crate::{
+    docker::{build_image, cleanup_docker, start_container},
+    parse_yml::{create_docker_file, retrieve_yml},
+};
 use axum::{
     Router,
     body::Bytes,
@@ -7,25 +11,17 @@ use axum::{
     response::IntoResponse,
     routing::post,
 };
-use bollard::{
-    Docker, body_full,
-    query_parameters::{
-        BuildImageOptionsBuilder, CreateContainerOptionsBuilder, RemoveContainerOptions,
-        StartContainerOptions, WaitContainerOptions,
-    },
-    secret::ContainerCreateBody,
-};
+use bollard::{Docker, query_parameters::LogsOptionsBuilder};
 use chrono::Local;
 use dotenv::dotenv;
 use futures_util::stream::StreamExt;
 use hex::encode;
 use hmac::{Hmac, KeyInit, Mac};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use serde::Deserialize;
 use sha2::Sha256;
-use std::{env, io::Cursor};
+use std::env;
 use subtle::ConstantTimeEq;
-use tar::Builder;
 use uuid::Uuid;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -82,7 +78,7 @@ async fn webhook(headers: HeaderMap, body: Bytes) -> impl IntoResponse {
         let cythe_yml = match retrieve_yml(
             payload.repository.full_name,
             tracked_branch.to_string(),
-            "https://raw.githubusercontent.com".to_string(),
+            "https://github.com".to_string(),
         )
         .await
         {
@@ -114,70 +110,43 @@ async fn runner(docker_file: String) -> Result<(), Box<dyn std::error::Error>> {
     let name = format!("cythe-{}", Uuid::new_v4());
     let image_name = format!("{}:latest", name);
 
-    let mut a = Builder::new(Vec::new());
-
-    let mut header = tar::Header::new_gnu();
-    header.set_size(docker_file.len() as u64);
-    header.set_cksum();
-    a.append_data(&mut header, "Dockerfile", Cursor::new(docker_file.clone()))?;
-    let tar_data = a.into_inner()?;
-
-    let build_options = BuildImageOptionsBuilder::new()
-        .dockerfile("Dockerfile")
-        .t(&image_name)
-        .nocache(true)
-        .build();
-
-    let mut build_stream =
-        docker.build_image(build_options, None, Some(body_full(tar_data.into())));
-
-    info!("Building image");
-    while let Some(result) = build_stream.next().await {
-        match result {
-            Ok(bi) => debug!("{:?}", bi),
-
-            Err(e) => {
-                error!("Error during docker image building: {e}");
-                return Err(Box::new(e));
-            }
+    match build_image(&docker, &image_name, docker_file).await {
+        Ok(_) => {}
+        Err(e) => {
+            error!("{e}");
+            return Err(e);
         }
-    }
-    info!("Successfully built image");
-
-    let config = ContainerCreateBody {
-        hostname: Some(name.clone()),
-        image: Some(image_name),
-        user: Some("root".to_string()),
-        ..Default::default()
     };
 
-    let options = CreateContainerOptionsBuilder::new().name(&name).build();
-    let container = docker.create_container(Some(options), config).await?;
-    info!("Created container: {}", container.id);
+    let container = match start_container(&docker, &name, &image_name).await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("{e}");
+            return Err(e);
+        }
+    };
 
-    docker
-        .start_container(&name, None::<StartContainerOptions>)
-        .await?;
-    info!("Started container: {}", container.id);
+    let logs_options = LogsOptionsBuilder::new().stdout(true).stderr(true).build();
 
-    let mut wait_stream = docker.wait_container(&name, None::<WaitContainerOptions>);
-
-    while let Some(result) = wait_stream.next().await {
+    let mut logs_stream = docker.logs(&name, Some(logs_options));
+    while let Some(result) = logs_stream.next().await {
         match result {
-            Ok(status) => {
-                info!("Container exited with status: {:?}", status);
+            Ok(output) => {
+                info!("{}", output);
             }
             Err(e) => {
-                error!("{e}");
+                error!("Error reading logs: {e}");
                 return Err(Box::new(e));
             }
         }
     }
-
-    docker
-        .remove_container(&name, None::<RemoveContainerOptions>)
-        .await?;
-    info!("Removed container: {}", container.id);
+    match cleanup_docker(&docker, container, &name, &image_name).await {
+        Ok(_) => {}
+        Err(e) => {
+            error!("{e}");
+            return Err(e);
+        }
+    };
 
     Ok(())
 }
