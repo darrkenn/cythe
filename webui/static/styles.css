@@ -1,0 +1,22 @@
+body {
+  background-color: #1e1f21;
+  display: flex;
+  justify-content: center;
+  color: white;
+  align-items: center;
+  margin: 0;
+  flex-direction: column;
+}
+
+.container {
+  width: 100%;
+  max-width: 800px;
+}
+
+@media (max-width: 700px) {
+  .container {
+    width: 100%;
+    max-width: none;
+    padding: 0 1rem;
+  }
+}
