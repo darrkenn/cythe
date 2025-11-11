@@ -7,7 +7,7 @@ steps:
   - name: Install git
     run: apt-get install -y git
   - name: Checkout repo
-    use: ciythe-checkout
+    use: cythe-checkout
 
   - name: Run tests
     run: cargo test --verbose
