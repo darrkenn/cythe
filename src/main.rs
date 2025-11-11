@@ -1,8 +1,8 @@
 mod docker;
 mod parse_yml;
 use crate::{
-    docker::{build_image, cleanup_docker, start_container},
-    parse_yml::{create_docker_file, retrieve_yml},
+    docker::{build_image, cleanup_docker, run_command, start_container, stop_container},
+    parse_yml::{RunStepCommand, parse_yaml, retrieve_yml},
 };
 use axum::{
     Router,
@@ -11,10 +11,9 @@ use axum::{
     response::IntoResponse,
     routing::post,
 };
-use bollard::{Docker, query_parameters::LogsOptionsBuilder};
+use bollard::Docker;
 use chrono::Local;
 use dotenv::dotenv;
-use futures_util::stream::StreamExt;
 use hex::encode;
 use hmac::{Hmac, KeyInit, Mac};
 use log::{error, info, warn};
@@ -40,6 +39,12 @@ struct Repository {
 
 async fn webhook(headers: HeaderMap, body: Bytes) -> impl IntoResponse {
     let secret = env::var("GITHUB_SECRET").unwrap_or_else(|_| "".to_string());
+    let allowed_repos: Vec<String> = env::var("ALLOWED_REPOS")
+        .unwrap_or_else(|_| "".to_string())
+        .split(",")
+        .map(|s| s.trim().to_string())
+        .collect();
+
     let signature = match headers.get("X-Hub-Signature-256") {
         Some(sig) => sig.to_str().unwrap_or(""),
         None => {
@@ -60,6 +65,11 @@ async fn webhook(headers: HeaderMap, body: Bytes) -> impl IntoResponse {
             return (StatusCode::BAD_REQUEST, "").into_response();
         }
     };
+
+    if !allowed_repos.contains(&payload.repository.full_name) {
+        warn!("Received a request from a unallowed repository");
+        return (StatusCode::UNAUTHORIZED, "").into_response();
+    }
 
     tokio::task::spawn(async move {
         println!(
@@ -89,26 +99,29 @@ async fn webhook(headers: HeaderMap, body: Bytes) -> impl IntoResponse {
             }
         };
         if cythe_yml.track == tracked_branch {
-            let docker_file = match create_docker_file(payload.repository.html_url, cythe_yml) {
-                Ok(df) => df,
+            let base = cythe_yml.base.to_owned();
+            let (docker_file, commands) = match parse_yaml(payload.repository.html_url, cythe_yml) {
+                Ok((df, commands)) => (df, commands),
                 Err(e) => {
                     error!("{e}");
                     return;
                 }
             };
-            println!("{docker_file}");
-
-            let _ = runner(docker_file).await;
+            let _ = runner(docker_file, base, commands).await;
         }
     });
 
     (StatusCode::OK, "").into_response()
 }
 
-async fn runner(docker_file: String) -> Result<(), Box<dyn std::error::Error>> {
+async fn runner(
+    docker_file: String,
+    base: String,
+    commands: Vec<RunStepCommand>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let docker = Docker::connect_with_local_defaults()?;
     let name = format!("cythe-{}", Uuid::new_v4());
-    let image_name = format!("{}:latest", name);
+    let image_name = format!("cythe-{}", base);
 
     match build_image(&docker, &image_name, docker_file).await {
         Ok(_) => {}
@@ -126,20 +139,21 @@ async fn runner(docker_file: String) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let logs_options = LogsOptionsBuilder::new().stdout(true).stderr(true).build();
+    for step in commands {
+        let (step_name, command) = (step.name, step.command);
+        let command_vec: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
+        println!("Container name: {}", name);
+        run_command(&docker, &name, command_vec).await?;
+    }
 
-    let mut logs_stream = docker.logs(&name, Some(logs_options));
-    while let Some(result) = logs_stream.next().await {
-        match result {
-            Ok(output) => {
-                info!("{}", output);
-            }
-            Err(e) => {
-                error!("Error reading logs: {e}");
-                return Err(Box::new(e));
-            }
+    match stop_container(&docker, &name).await {
+        Ok(_) => {}
+        Err(e) => {
+            error!("{e}");
+            return Err(e);
         }
     }
+
     match cleanup_docker(&docker, container, &name, &image_name).await {
         Ok(_) => {}
         Err(e) => {
@@ -176,7 +190,8 @@ fn verify_signature(secret: &str, signature: &str, body_bytes: &[u8]) -> bool {
 
 fn setup_logger() -> Result<(), fern::InitError> {
     fern::Dispatch::new()
-        .level(log::LevelFilter::Debug)
+        .level(log::LevelFilter::Info)
+        .level_for("bollard::docker", log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .chain(fern::log_file("cythe.log")?)
         .format(|out, message, record| {

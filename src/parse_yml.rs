@@ -10,8 +10,11 @@ pub struct Step {
     pub name: String,
     pub run: Option<String>,
     pub r#use: Option<String>,
-    pub entrypoint: Option<String>,
-    pub cmd: Option<String>,
+}
+
+pub struct RunStepCommand {
+    pub name: String,
+    pub command: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,45 +68,35 @@ impl ::std::fmt::Display for GitError {
     }
 }
 
-pub fn create_docker_file(git_url: String, cythe_yml: CytheYAML) -> Result<String, YamlError> {
-    let mut docker_file = format!("FROM {}\nWORKDIR /app\n", cythe_yml.base);
+pub fn parse_yaml(
+    git_url: String,
+    cythe_yml: CytheYAML,
+) -> Result<(String, Vec<RunStepCommand>), YamlError> {
+    let docker_file = format!("FROM {}\nWORKDIR /app\n", cythe_yml.base);
+    let mut steps: Vec<RunStepCommand> = Vec::new();
 
     for step in cythe_yml.steps {
         if let Some(internal_command) = step.r#use {
             match internal_command.as_str() {
                 "cythe-checkout" => {
-                    docker_file.push_str(&format!("RUN git clone --depth=1 {} .\n", git_url));
+                    steps.push(RunStepCommand {
+                        name: step.name,
+                        command: format!("git clone --depth=1 {} .", git_url),
+                    });
+                    continue;
                 }
                 s => return Err(YamlError::NotAUseCommand(s.to_string())),
             }
         }
         if let Some(run) = step.run {
-            docker_file.push_str(&format!("RUN {}\n", run));
-        }
-        if let Some(entrypoint) = step.entrypoint {
-            docker_file.push_str(&format!(
-                "ENTRYPOINT [\"sh\", \"-c\", \"{}\"]\n",
-                entrypoint
-            ))
-        }
-        if let Some(cmd) = step.cmd {
-            let parts = cmd.split_whitespace().collect::<Vec<_>>();
-            let cmd = parts
-                .iter()
-                .map(|p| {
-                    if p.starts_with('"') && p.ends_with('"') {
-                        p.to_string()
-                    } else {
-                        format!("\"{}\"", p)
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join(", ");
-            docker_file.push_str(&format!("CMD [{}]\n", cmd))
+            steps.push(RunStepCommand {
+                name: step.name,
+                command: run,
+            })
         }
     }
 
-    Ok(docker_file)
+    Ok((docker_file, steps))
 }
 
 pub async fn retrieve_yml(
@@ -172,77 +165,57 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_create_docker_file_successful() {
+    async fn test_parse_yaml_successful() {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
-        let cythe_yml = CytheYAML {
+
+        let cythe_yaml = CytheYAML {
             base: String::from("rust:slim-trixie"),
             track: String::from("main"),
             steps: vec![
                 Step {
-                    name: String::from("Update"),
-                    run: Some(String::from("apt update && apt-get install git -y")),
-                    r#use: None,
-                    entrypoint: None,
-                    cmd: None,
-                },
-                Step {
-                    name: String::from("Checkout repo"),
+                    name: String::from("Checkout"),
                     run: None,
                     r#use: Some(String::from("cythe-checkout")),
-                    entrypoint: None,
-                    cmd: None,
                 },
                 Step {
-                    name: String::from("Build"),
-                    run: Some(String::from("cargo build --release")),
+                    name: String::from("Test"),
+                    run: Some(String::from("cargo test --verbose")),
                     r#use: None,
-                    entrypoint: None,
-                    cmd: None,
-                },
-                Step {
-                    name: String::from("Run"),
-                    run: None,
-                    r#use: None,
-                    entrypoint: Some(String::from("./target/release/cythe")),
-                    cmd: None,
-                },
-                Step {
-                    name: String::from("test"),
-                    run: None,
-                    r#use: None,
-                    entrypoint: None,
-                    cmd: Some(String::from("echo \"hi\"")),
                 },
             ],
         };
 
-        let result = create_docker_file(git_url, cythe_yml).expect("Couldnt create docker file");
+        let (docker_file, commands) =
+            parse_yaml(git_url, cythe_yaml).expect("Couldnt create docker file");
+        let command_one: &RunStepCommand = &commands[0];
+        let command_two: &RunStepCommand = &commands[1];
 
-        assert!(result.contains("FROM rust:slim-trixie"));
-        assert!(result.contains("WORKDIR /app"));
-        assert!(result.contains("RUN apt update && apt-get install git -y"));
-        assert!(result.contains("RUN git clone --depth=1 https://github.com/darrkenn/cythe ."));
-        assert!(result.contains("RUN cargo build --release"));
-        assert!(result.contains(r#"ENTRYPOINT ["sh", "-c", "./target/release/cythe"]"#));
-        assert!(result.contains(r#"CMD ["echo", "hi"]"#));
+        assert!(docker_file.contains("FROM rust:slim-trixie"));
+        assert!(docker_file.contains("WORKDIR /app"));
+        assert!(command_one.name.contains("Checkout"));
+        assert!(
+            command_one
+                .command
+                .contains("git clone --depth=1 https://github.com/darrkenn/cythe .")
+        );
+        assert!(command_two.name.contains("Test"));
+        assert!(command_two.command.contains("cargo test --verbose"));
     }
 
     #[tokio::test]
-    async fn test_create_docker_file_invalid_use_command() {
+    async fn test_parse_yaml_invalid_use_command() {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
-        let cythe_yml = CytheYAML {
+        let cythe_yaml = CytheYAML {
             base: String::from("rust:slim-trixie"),
             track: String::from("main"),
             steps: vec![Step {
-                name: String::from("Update"),
+                name: String::from("invalid"),
                 run: None,
                 r#use: Some(String::from("invalid")),
-                entrypoint: None,
-                cmd: None,
             }],
         };
 
-        let result = create_docker_file(git_url, cythe_yml);
+        let result = parse_yaml(git_url, cythe_yaml);
         match result {
             Err(YamlError::NotAUseCommand(cmd)) => assert_eq!(cmd, "invalid"),
             _ => panic!("Expected error NotAUseCommand"),
