@@ -58,6 +58,7 @@ async fn webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
+    info!("Post requested to /webhook received");
     let signature = match headers.get("X-Hub-Signature-256") {
         Some(sig) => sig.to_str().unwrap_or(""),
         None => {
@@ -72,14 +73,12 @@ async fn webhook(
             return (StatusCode::BAD_REQUEST, "").into_response();
         }
     };
-
     let repo_full_name = &payload.repository.full_name;
 
     if !state.allowed_repos.contains(repo_full_name) {
         warn!("Received a request from a unallowed repository");
         return (StatusCode::UNAUTHORIZED, "").into_response();
     }
-
     let secret = match state.secrets.get(repo_full_name) {
         Some(s) => s.trim(),
         None => {
@@ -87,7 +86,6 @@ async fn webhook(
             return (StatusCode::UNAUTHORIZED, "").into_response();
         }
     };
-
     if !verify_signature(secret, signature, &body[..]) {
         warn!("Invalid signature for {}", repo_full_name);
         return (StatusCode::UNAUTHORIZED, "").into_response();
@@ -156,6 +154,8 @@ async fn webhook(
                 "Runner for {} finished. Active runners: {}/{}",
                 repo_full_name, active_runners, max_runners
             );
+        } else {
+            info!("Not tracking the branch: {}", tracked_branch);
         }
     });
 
