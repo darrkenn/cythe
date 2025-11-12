@@ -19,20 +19,21 @@ hex = "0.4.3"
 subtle = "2.6.1"
 bollard = "0.19.4"
 futures-util = "0.3.31"
-tar = "0.4.44"
 git2 = "0.20.2"
 tower-http = { version = "0.6.6", features = ["fs"] }
+toml = "0.9.8"
 
 [dependencies.uuid]
 version = "1.18.1"
 features = ["v4"]
 
 [profile.release]
-lto = true
+lto = "fat"
 codegen-units = 1
 opt-level = 3
 debug = false
-strip = "none"
+strip = "symbols"
+panic = "abort"
 debug-assertions = false
 overflow-checks = false
 rpath = false

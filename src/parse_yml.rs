@@ -19,7 +19,7 @@ pub struct RunStepCommand {
 
 #[derive(Debug, Deserialize)]
 pub struct CytheYAML {
-    pub base: String,
+    pub image: String,
     pub track: String,
     pub steps: Vec<Step>,
 }
@@ -72,7 +72,6 @@ pub fn parse_yaml(
     git_url: String,
     cythe_yml: CytheYAML,
 ) -> Result<(String, Vec<RunStepCommand>), YamlError> {
-    let docker_file = format!("FROM {}\nWORKDIR /app\n", cythe_yml.base);
     let mut steps: Vec<RunStepCommand> = Vec::new();
 
     for step in cythe_yml.steps {
@@ -96,11 +95,11 @@ pub fn parse_yaml(
         }
     }
 
-    Ok((docker_file, steps))
+    Ok((cythe_yml.image, steps))
 }
 
-pub async fn retrieve_yml(
-    repo_full_name: String,
+pub async fn retrieve_yaml(
+    repo_full_name: &str,
     tracked_branch: String,
     //Git Hosting Platform URL
     ghp_url: String,
@@ -169,7 +168,7 @@ mod tests {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
 
         let cythe_yaml = CytheYAML {
-            base: String::from("rust:slim-trixie"),
+            image: String::from("rust:slim-trixie"),
             track: String::from("main"),
             steps: vec![
                 Step {
@@ -185,13 +184,12 @@ mod tests {
             ],
         };
 
-        let (docker_file, commands) =
+        let (image, commands) =
             parse_yaml(git_url, cythe_yaml).expect("Couldnt create docker file");
         let command_one: &RunStepCommand = &commands[0];
         let command_two: &RunStepCommand = &commands[1];
 
-        assert!(docker_file.contains("FROM rust:slim-trixie"));
-        assert!(docker_file.contains("WORKDIR /app"));
+        assert!(image.contains("rust:slim-trixie"));
         assert!(command_one.name.contains("Checkout"));
         assert!(
             command_one
@@ -206,7 +204,7 @@ mod tests {
     async fn test_parse_yaml_invalid_use_command() {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
         let cythe_yaml = CytheYAML {
-            base: String::from("rust:slim-trixie"),
+            image: String::from("rust:slim-trixie"),
             track: String::from("main"),
             steps: vec![Step {
                 name: String::from("invalid"),

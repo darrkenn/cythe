@@ -1,17 +1,14 @@
-use std::io::Cursor;
-
 use bollard::{
-    Docker, body_full,
+    Docker,
     exec::StartExecResults,
     query_parameters::{
-        BuildImageOptionsBuilder, CreateContainerOptionsBuilder, InspectContainerOptionsBuilder,
+        CreateContainerOptionsBuilder, CreateImageOptionsBuilder, InspectContainerOptionsBuilder,
         RemoveContainerOptions, RemoveImageOptions, StartContainerOptions, StopContainerOptions,
     },
     secret::{ContainerCreateBody, ContainerCreateResponse, ExecConfig},
 };
 use futures_util::StreamExt;
 use log::{error, info};
-use tar::Builder;
 
 #[derive(Debug)]
 pub enum ContainerError {
@@ -41,44 +38,28 @@ impl From<bollard::errors::Error> for ContainerError {
     }
 }
 
-pub async fn build_image(
-    docker: &Docker,
-    image_name: &str,
-    docker_file: String,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if docker.inspect_image(image_name).await.is_ok() {
-        println!("Image exists, stopping the build");
+pub async fn pull_image(docker: &Docker, image: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if docker.inspect_image(image).await.is_ok() {
+        println!("Image exists");
         return Ok(());
     };
-    let mut a = Builder::new(Vec::new());
 
-    let mut header = tar::Header::new_gnu();
-    header.set_size(docker_file.len() as u64);
-    header.set_cksum();
-    a.append_data(&mut header, "Dockerfile", Cursor::new(docker_file.clone()))?;
-    let tar_data = a.into_inner()?;
+    let options = CreateImageOptionsBuilder::new().from_image(image).build();
 
-    let build_options = BuildImageOptionsBuilder::new()
-        .dockerfile("Dockerfile")
-        .t(image_name)
-        .nocache(true)
-        .build();
+    let mut pull_stream = docker.create_image(Some(options), None, None);
 
-    let mut build_stream =
-        docker.build_image(build_options, None, Some(body_full(tar_data.into())));
-
-    info!("Building image");
-    while let Some(result) = build_stream.next().await {
+    info!("Pulling image: {}", image);
+    while let Some(result) = pull_stream.next().await {
         match result {
             Ok(_) => {}
-
             Err(e) => {
-                error!("Error during docker image building: {e}");
+                error!("Error during image pull: {e}");
                 return Err(Box::new(e));
             }
         }
     }
-    info!("Successfully built image");
+
+    info!("Successfully pulled image: {image}");
     Ok(())
 }
 
@@ -112,16 +93,19 @@ pub async fn cleanup_docker(
     container: ContainerCreateResponse,
     name: &str,
     image_name: &str,
+    cache_images: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     docker
         .remove_container(name, None::<RemoveContainerOptions>)
         .await?;
     info!("Removed container: {}", container.id);
 
-    docker
-        .remove_image(image_name, None::<RemoveImageOptions>, None)
-        .await?;
-    info!("Removed image: {}", &image_name);
+    if !cache_images {
+        docker
+            .remove_image(image_name, None::<RemoveImageOptions>, None)
+            .await?;
+        info!("Removed image: {}", &image_name);
+    }
     Ok(())
 }
 
