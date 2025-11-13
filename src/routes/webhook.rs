@@ -102,34 +102,28 @@ pub async fn webhook(
             let cache_images = state.config.cache_images;
             let max_runners = state.config.max_active_runners;
             info!("Trying to start runner for: {}", repo_full_name);
-            loop {
-                let mut active_runners = state.active_runners.lock().await;
-                if *active_runners < max_runners {
-                    *active_runners += 1;
-                    info!(
-                        "Runner started for {}. Active runners: {}/{}",
-                        &repo_full_name, active_runners, max_runners
-                    );
-                    drop(active_runners);
-                    break;
-                };
-                info!(
-                    "Active runners at max: {}. {} runner cannot start.",
-                    active_runners, repo_full_name
-                );
-                drop(active_runners);
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            }
+            let _permit = state.active_runners.clone().acquire_owned().await.unwrap();
+
+            info!(
+                "Runner started for {}. Active runners: {}/{}",
+                &repo_full_name,
+                max_runners - state.active_runners.available_permits() as u8,
+                max_runners
+            );
+
             match runner(image, commands, cache_images).await {
                 Ok(_) => info!("Runner for {} completed successfully", repo_full_name),
                 Err(e) => error!("Runner failed for {}: {e}", repo_full_name),
-            };
+            }
 
-            let mut active_runners = state.active_runners.lock().await;
-            *active_runners -= 1;
+            //Fixes inaccurate count of active runners
+            drop(_permit);
+
             info!(
                 "Runner for {} finished. Active runners: {}/{}",
-                repo_full_name, active_runners, max_runners
+                repo_full_name,
+                max_runners - state.active_runners.available_permits() as u8,
+                max_runners
             );
         } else {
             info!("Not tracking the branch: {}", tracked_branch);

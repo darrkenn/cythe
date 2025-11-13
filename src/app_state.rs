@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use serde::Deserialize;
-use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 
 #[derive(Deserialize, Clone)]
 pub struct Config {
@@ -14,7 +14,7 @@ pub struct Config {
 pub struct AppState {
     pub allowed_repos: Arc<Vec<String>>,
     pub secrets: Arc<HashMap<String, String>>,
-    pub active_runners: Arc<Mutex<u8>>,
+    pub active_runners: Arc<Semaphore>,
     pub config: Arc<Config>,
 }
 
@@ -67,7 +67,7 @@ pub fn load_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
     Ok(AppState {
         allowed_repos: Arc::new(allowed_repos),
         secrets: Arc::new(secrets),
-        active_runners: Arc::new(Mutex::new(0)),
+        active_runners: Arc::new(Semaphore::new(config.max_active_runners as usize)),
         config: Arc::new(config),
     })
 }

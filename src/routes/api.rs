@@ -17,9 +17,8 @@ pub async fn repos(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 pub async fn runners(State(state): State<AppState>) -> impl IntoResponse {
-    let active_guard = state.active_runners.lock().await;
-    let active_runners: &u8 = &active_guard;
     let max_runners = state.config.max_active_runners;
+    let active_runners = max_runners - state.active_runners.available_permits() as u8;
 
     let html = format!(
         "<li>Active runners: {}</li><li>Max runners: {}</li>",
