@@ -2,12 +2,12 @@ use axum::{
     Router,
     routing::{get, post},
 };
-use tower_http::services::ServeFile;
+use tower_http::services::{ServeDir, ServeFile};
 
 use crate::{
     app_state::AppState,
     routes::{
-        api::{repos, runners},
+        api::{active_runners, max_runners, repos},
         pages::home,
         webhook::webhook,
     },
@@ -15,15 +15,16 @@ use crate::{
 
 mod api;
 mod pages;
-mod stream;
 mod webhook;
 
 pub fn create_router(app_state: AppState) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/webhook", post(webhook))
-        .route("/api/runners", get(runners))
+        .route("/api/max-runners", get(max_runners))
+        .route("/api/active-runners", get(active_runners))
         .route("/api/repos", get(repos))
         .nest_service("/css", ServeFile::new("webui/static/styles.css"))
+        .nest_service("/js/", ServeDir::new("webui/js"))
         .with_state(app_state)
 }
