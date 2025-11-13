@@ -20,3 +20,20 @@ body {
     padding: 0 1rem;
   }
 }
+
+.home-list a {
+  color: #9bd1ff;
+  font-weight: bold;
+}
+.home-list a:hover {
+  color: #5fb8ff;
+  text-decoration: underline;
+}
+
+h2 + .home-list {
+  margin-top: 0;
+}
+
+h2:has(+ .home-list) {
+  margin-bottom: 0;
+}
