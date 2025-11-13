@@ -24,7 +24,8 @@ pub fn create_router(app_state: AppState) -> Router {
         .route("/api/max-runners", get(max_runners))
         .route("/api/active-runners", get(active_runners))
         .route("/api/repos", get(repos))
-        .nest_service("/css", ServeFile::new("webui/static/styles.css"))
+        .nest_service("/favicon.ico", ServeFile::new("webui/favicon.ico"))
+        .nest_service("/static/", ServeDir::new("webui/static/"))
         .nest_service("/js/", ServeDir::new("webui/js"))
         .with_state(app_state)
 }
