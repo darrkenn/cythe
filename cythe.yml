@@ -10,4 +10,4 @@ steps:
   - name: Modify files
     run: echo "[\"darrkenn/cythe\"]" >> /etc/cythe/allowed-repos.json && echo "9e989623257bb798879f668168fa1f3efbfce4c458a985896ef1d414fd6e733c" >> /etc/cythe/secrets/darrkenn/cythe.secret && echo -e "cache_images = true\nmax_active_runners = 2\nlog_level=\"info\"" >> /etc/cythe/config.toml
   - name: Run tests
-    run: cargo test --verbose
+    run: cargo test
