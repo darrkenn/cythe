@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use bollard::Docker;
 use log::error;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
@@ -11,9 +14,10 @@ pub async fn runner(
     image: String,
     commands: Vec<RunStepCommand>,
     cache_images: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(String, bool), Box<dyn std::error::Error>> {
     let docker = Docker::connect_with_local_defaults()?;
     let name = format!("cythe-{}", Uuid::new_v4());
+    let mut failed = false;
 
     match pull_image(&docker, &image).await {
         Ok(_) => {}
@@ -31,12 +35,22 @@ pub async fn runner(
         }
     };
 
+    let mut step_messages: HashMap<String, serde_json::Value> = HashMap::new();
+
     for step in commands {
-        let (_step_name, command) = (step.name, step.command);
+        let (step_name, command) = (step.name, step.command);
         let command_vec: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
         println!("Container name: {}", name);
-        run_command(&docker, &name, command_vec).await?;
+        let (messages, success) = run_command(&docker, &name, command_vec).await?;
+        step_messages.insert(step_name, json!(messages));
+        if !success {
+            failed = true;
+            break;
+        }
     }
+
+    let logs = json!({"steps": step_messages}).to_string();
+    drop(step_messages);
 
     match stop_container(&docker, &name).await {
         Ok(_) => {}
@@ -54,5 +68,5 @@ pub async fn runner(
         }
     };
 
-    Ok(())
+    Ok((logs, failed))
 }

@@ -24,6 +24,7 @@ struct Payload {
 
 use crate::{
     app_state::AppState,
+    database::{self, PipelineEntry},
     parse_yml::{parse_yaml, retrieve_yaml},
     runner::runner,
 };
@@ -35,7 +36,7 @@ pub async fn webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    info!("Post requested to /webhook received");
+    info!("Post request to /webhook received");
     let signature = match headers.get("X-Hub-Signature-256") {
         Some(sig) => sig.to_str().unwrap_or(""),
         None => {
@@ -112,7 +113,23 @@ pub async fn webhook(
             );
 
             match runner(image, commands, cache_images).await {
-                Ok(_) => info!("Runner for {} completed successfully", repo_full_name),
+                Ok((logs, failed)) => {
+                    info!("Runner for {repo_full_name} completed successfully");
+                    let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();
+                    let pipeline_entry =
+                        PipelineEntry::new(repo_full_name.clone(), logs, failed, date);
+                    match database::create_pipeline_entry(pipeline_entry) {
+                        Ok(_) => {
+                            info!(
+                                "Successfully created database log entry for: {}",
+                                repo_full_name
+                            );
+                        }
+                        Err(e) => {
+                            error!("Couldn't create database log entry for: {repo_full_name}. {e}");
+                        }
+                    };
+                }
                 Err(e) => error!("Runner failed for {}: {e}", repo_full_name),
             }
 

@@ -21,30 +21,7 @@
         </div>
         <hr />
       </nav>
-      <h2>Runners</h2>
-      <ul class="home-list">
-        <li
-          hx-trigger="load"
-          hx-get="/api/max-runners"
-          hx-target="this"
-          hx-swap="outerHTML"
-        ></li>
-        <li
-          hx-ext="sse"
-          sse-connect="/api/active-runners"
-          sse-swap="active-runners"
-        >
-          Active runners: 0
-        </li>
-      </ul>
-      <h2>Repos</h2>
-      <ul
-        class="home-list"
-        hx-trigger="load"
-        hx-get="/api/repos"
-        hx-target="this"
-        hx-swap="innerHTML"
-      ></ul>
+      <h1>{{repo}}</h1>
     </div>
   </body>
 </html>

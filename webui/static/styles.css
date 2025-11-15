@@ -21,6 +21,33 @@ body {
   }
 }
 
+.nav-bar {
+  width: 100%;
+  max-width: 100%;
+}
+.nav-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2rem;
+}
+.nav-row h2 {
+  margin: 0;
+}
+
+.nav-bar hr {
+  border: none;
+  border-top: 1px solid white;
+  margin: 0;
+}
+
+a img {
+  display: block;
+  cursor: pointer;
+  margin: 0;
+  margin-top: 0.5rem;
+}
+
 .home-list a {
   color: #9bd1ff;
   font-weight: bold;

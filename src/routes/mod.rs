@@ -8,7 +8,7 @@ use crate::{
     app_state::AppState,
     routes::{
         api::{active_runners, max_runners, repos},
-        pages::home,
+        pages::{home, repo},
         webhook::webhook,
     },
 };
@@ -20,6 +20,7 @@ mod webhook;
 pub fn create_router(app_state: AppState) -> Router {
     Router::new()
         .route("/", get(home))
+        .route("/repo", get(repo))
         .route("/webhook", post(webhook))
         .route("/api/max-runners", get(max_runners))
         .route("/api/active-runners", get(active_runners))

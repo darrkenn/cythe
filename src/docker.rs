@@ -1,5 +1,6 @@
 use bollard::{
     Docker,
+    container::LogOutput,
     exec::StartExecResults,
     query_parameters::{
         CreateContainerOptionsBuilder, CreateImageOptionsBuilder, InspectContainerOptionsBuilder,
@@ -9,6 +10,7 @@ use bollard::{
 };
 use futures_util::StreamExt;
 use log::{error, info};
+use serde_json::json;
 
 #[derive(Debug)]
 pub enum ContainerError {
@@ -131,7 +133,7 @@ pub async fn run_command(
     docker: &Docker,
     name: &str,
     command: Vec<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(Vec<serde_json::Value>, bool), Box<dyn std::error::Error>> {
     inspect_container(docker, name).await?;
     let config = ExecConfig {
         attach_stdout: Some(true),
@@ -139,13 +141,30 @@ pub async fn run_command(
         cmd: Some(command),
         ..Default::default()
     };
-    let exec = docker.create_exec(name, config).await?.id;
-    if let StartExecResults::Attached { mut output, .. } = docker.start_exec(&exec, None).await? {
+    let mut messages = Vec::new();
+    let exec_id = docker.create_exec(name, config).await?.id;
+    if let StartExecResults::Attached { mut output, .. } = docker.start_exec(&exec_id, None).await?
+    {
         while let Some(Ok(msg)) = output.next().await {
-            print!("{msg}");
+            match msg {
+                LogOutput::StdErr { message } => {
+                    messages.push(
+                        json!({"type": "stderr", "message": String::from_utf8_lossy(&message)}),
+                    );
+                }
+                LogOutput::StdOut { message } => {
+                    messages.push(
+                        json!({"type": "stdout", "message": String::from_utf8_lossy(&message)}),
+                    );
+                }
+                _ => {}
+            }
         }
     } else {
         unreachable!()
     }
-    Ok(())
+    let exec_info = docker.inspect_exec(&exec_id).await?;
+    let exit_code = exec_info.exit_code.unwrap_or(1);
+    let success = exit_code == 0;
+    Ok((messages, success))
 }
