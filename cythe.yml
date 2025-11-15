@@ -3,11 +3,5 @@ track: main
 steps:
   - name: Checkout repo
     use: cythe-checkout
-  - name: Create directories
-    run: mkdir /etc/cythe && mkdir -p /etc/cythe/secrets/darrkenn
-  - name: Create files
-    run: touch /etc/cythe/allowed-repos.json && touch /etc/cythe/config.toml && touch /etc/cythe/secrets/darrkenn/cythe.secret
-  - name: Modify files
-    run: echo "[\"darrkenn/cythe\"]" >> /etc/cythe/allowed-repos.json && echo "9e989623257bb798879f668168fa1f3efbfce4c458a985896ef1d414fd6e733c" >> /etc/cythe/secrets/darrkenn/cythe.secret && echo -e "cache_images = true\nmax_active_runners = 2\nlog_level=\"info\"" >> /etc/cythe/config.toml
   - name: Run tests
-    run: cargo test
+    run: cargo test -q
