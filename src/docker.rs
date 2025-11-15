@@ -149,12 +149,12 @@ pub async fn run_command(
             match msg {
                 LogOutput::StdErr { message } => {
                     messages.push(
-                        json!({"type": "stderr", "message": String::from_utf8_lossy(&message)}),
+                        json!({"type": "stderr", "message": String::from_utf8_lossy(&message).to_string().trim()}),
                     );
                 }
                 LogOutput::StdOut { message } => {
                     messages.push(
-                        json!({"type": "stdout", "message": String::from_utf8_lossy(&message)}),
+                        json!({"type": "stdout", "message": String::from_utf8_lossy(&message).to_string().trim()}),
                     );
                 }
                 _ => {}

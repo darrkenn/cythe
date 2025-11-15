@@ -1,0 +1,17 @@
+<div class="pipeline-entry-info">
+  <p>ID: {{id}}</p>
+  <p>Status: {% if failed %}failed{% else %}successful{% endif %}</p>
+  <p>Date: {{date}}</p>
+</div>
+
+<h2>Steps</h2>
+{% for step in logs.steps %}
+<h3>{{step.name}}</h3>
+{%if step.messages %}
+<code>
+  {%for msg in step.messages%}
+  <span>{{msg.message}}</span>
+  {%endfor%} </code
+>{%else%}
+<p>No messages</p>
+{%endif%} {%endfor%}

@@ -21,7 +21,15 @@
         </div>
         <hr />
       </nav>
-      <h1>{{repo}}</h1>
+      <div class="pipeline-entry">
+        <h1>{{repo}}</h1>
+        <div
+          hx-trigger="load"
+          hx-get="/api/latest_entry?name={{org}}/{{repo}}"
+          hx-target="this"
+          hx-swap="innerHTML"
+        ></div>
+      </div>
     </div>
   </body>
 </html>

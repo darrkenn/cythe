@@ -35,4 +35,6 @@ max_active_runners = 4
 # Logging level
 # Options: "error", "warn", "info", "trace"
 log_level = "info"
+# Whether or not to continue executing steps if one fails
+continue_on_fail = false
 ```

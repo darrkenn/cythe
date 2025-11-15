@@ -8,6 +8,7 @@ pub struct Config {
     pub cache_images: bool,
     pub max_active_runners: u8,
     pub log_level: String,
+    pub continue_on_fail: bool,
 }
 
 #[derive(Clone)]

@@ -102,6 +102,7 @@ pub async fn webhook(
             };
             let cache_images = state.config.cache_images;
             let max_runners = state.config.max_active_runners;
+            let continue_on_fail = state.config.continue_on_fail;
             info!("Trying to start runner for: {}", repo_full_name);
             let _permit = state.active_runners.clone().acquire_owned().await.unwrap();
 
@@ -112,7 +113,7 @@ pub async fn webhook(
                 max_runners
             );
 
-            match runner(image, commands, cache_images).await {
+            match runner(image, commands, cache_images, continue_on_fail).await {
                 Ok((logs, failed)) => {
                     info!("Runner for {repo_full_name} completed successfully");
                     let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();

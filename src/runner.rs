@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
 use bollard::Docker;
 use log::error;
+use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -10,10 +9,17 @@ use crate::{
     parse_yml::RunStepCommand,
 };
 
+#[derive(Serialize)]
+struct StepMessage {
+    pub name: String,
+    pub messages: serde_json::Value,
+}
+
 pub async fn runner(
     image: String,
     commands: Vec<RunStepCommand>,
     cache_images: bool,
+    continue_on_fail: bool,
 ) -> Result<(String, bool), Box<dyn std::error::Error>> {
     let docker = Docker::connect_with_local_defaults()?;
     let name = format!("cythe-{}", Uuid::new_v4());
@@ -35,17 +41,24 @@ pub async fn runner(
         }
     };
 
-    let mut step_messages: HashMap<String, serde_json::Value> = HashMap::new();
-
+    let mut step_messages: Vec<StepMessage> = Vec::new();
     for step in commands {
         let (step_name, command) = (step.name, step.command);
         let command_vec: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
-        println!("Container name: {}", name);
+        println!("Running step {step_name}");
         let (messages, success) = run_command(&docker, &name, command_vec).await?;
-        step_messages.insert(step_name, json!(messages));
+        let step_message = StepMessage {
+            name: step_name,
+            messages: json!(messages),
+        };
+
+        step_messages.push(step_message);
+
         if !success {
             failed = true;
-            break;
+            if !continue_on_fail {
+                break;
+            }
         }
     }
 

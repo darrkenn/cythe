@@ -2,17 +2,20 @@ mod operations;
 use rusqlite::Connection;
 
 pub use operations::create_pipeline_entry;
+pub use operations::get_latest_entry;
 
 pub struct PipelineEntry {
-    name: String,
-    logs: String,
-    failed: bool,
-    date: String,
+    pub id: Option<u32>,
+    pub name: String,
+    pub logs: String,
+    pub failed: bool,
+    pub date: String,
 }
 
 impl PipelineEntry {
     pub fn new(name: String, logs: String, failed: bool, date: String) -> PipelineEntry {
         PipelineEntry {
+            id: None,
             name,
             logs,
             failed,

@@ -3,15 +3,9 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use log::error;
-use serde::Deserialize;
 use tera::Context;
 
-use crate::TEMPLATES;
-
-#[derive(Deserialize)]
-pub struct RepoQuery {
-    pub name: String,
-}
+use crate::{TEMPLATES, routes::RepoQuery};
 
 pub async fn home() -> impl IntoResponse {
     let html = tokio::fs::read_to_string("webui/index.html")

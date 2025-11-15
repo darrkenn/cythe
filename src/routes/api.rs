@@ -1,12 +1,15 @@
 use std::{convert::Infallible, time::Duration};
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     response::{Html, IntoResponse, Sse, sse::Event},
 };
 use futures_util::{Stream, StreamExt, stream};
+use log::error;
+use serde_json::json;
+use tera::Context;
 
-use crate::app_state::AppState;
+use crate::{TEMPLATES, app_state::AppState, database::get_latest_entry, routes::RepoQuery};
 
 pub async fn repos(State(state): State<AppState>) -> impl IntoResponse {
     let repos = state.allowed_repos.as_ref();
@@ -48,4 +51,29 @@ pub async fn active_runners(
             .interval(Duration::from_secs(1))
             .text("keep-alive"),
     )
+}
+
+pub async fn latest_entry(repo_query: Query<RepoQuery>) -> impl IntoResponse {
+    let latest_entry = match get_latest_entry(repo_query.name.clone()) {
+        Ok(pe) => pe,
+        Err(e) => {
+            error!("Error getting latest_entry: {e}");
+            return Html("<h2>Can't get latest logs</h2>".to_string());
+        }
+    };
+    let mut context = Context::new();
+    let logs: serde_json::Value = serde_json::from_str(&latest_entry.logs).unwrap_or(json!({}));
+    context.insert("id", &latest_entry.id.unwrap_or(0));
+    context.insert("name", &latest_entry.name);
+    context.insert("logs", &logs);
+    context.insert("failed", &latest_entry.failed);
+    context.insert("date", &latest_entry.date);
+
+    match TEMPLATES.render("latest_entry.html", &context) {
+        Ok(html) => Html(html),
+        Err(e) => {
+            error!("Template render error: {e}");
+            Html("<h1>Template render error</h1>".to_string())
+        }
+    }
 }
