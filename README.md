@@ -7,14 +7,12 @@ A lightweight CI program that uses docker to test and build your applications.
 All configuration is located at `/etc/cythe`.
 
 Configure which repositories cythe will run `/etc/cythe/allowed-repos.json`.
-Example:
 
 ```json
 ["darrkenn/cythe", "darrkenn/cythe-test"]
 ```
 
-Place all repository secrets at `/etc/cythe/secrets` with this structure:
-Example:
+Place all repository secrets at `/etc/cythe/secrets` with this structure.
 
 ```
 darrkenn/ # Organisation name
@@ -24,7 +22,6 @@ darrkenn/ # Organisation name
 ```
 
 Configure cythe's runtime options at `/etc/cythe/config.toml`.
-Example:
 
 ```toml
 # Whether or not to cache container images between runs
