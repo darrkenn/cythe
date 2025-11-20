@@ -21,7 +21,7 @@ pub async fn runner(
     cache_images: bool,
     continue_on_fail: bool,
 ) -> Result<(String, bool), Box<dyn std::error::Error>> {
-    let docker = Docker::connect_with_local_defaults()?;
+    let docker = Docker::connect_with_unix_defaults()?;
     let name = format!("cythe-{}", Uuid::new_v4());
     let mut failed = false;
 

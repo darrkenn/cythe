@@ -10,7 +10,11 @@ use tera::Tera;
 mod app_state;
 mod database;
 
-use crate::{app_state::load_app_state, database::create_tables, routes::create_router};
+use crate::{
+    app_state::load_app_state,
+    database::create_tables,
+    routes::{create_router, create_router_debug},
+};
 
 lazy_static! {
     pub static ref TEMPLATES: Tera = {
@@ -53,7 +57,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger(&app_state.config.log_level).expect("Couldnt setup logger");
     info!("Starting up cythe");
 
-    let router = create_router(app_state);
+    let router = if cfg!(debug_assertions) {
+        println!("Running in debug mode");
+        create_router_debug(app_state)
+    } else {
+        println!("Running in debug mode");
+        create_router(app_state)
+    };
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:6143").await.unwrap();
     info!("cythe available at 0.0.0.0:6143");

@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+use axum::extract::Query;
 use axum::{
     body::Bytes,
     extract::State,
@@ -22,6 +24,8 @@ struct Payload {
     pub repository: Repository,
 }
 
+#[cfg(debug_assertions)]
+use crate::routes::RepoQuery;
 use crate::{
     app_state::AppState,
     database::{self, PipelineEntry},
@@ -172,6 +176,92 @@ fn verify_signature(secret: &str, signature: &str, body_bytes: &[u8]) -> bool {
         .as_bytes()
         .ct_eq(signature.as_bytes())
         .into()
+}
+
+#[derive(Deserialize)]
+pub struct DebugWebhookQuery {
+    name: String,
+    tracked_branch: String,
+}
+
+#[cfg(debug_assertions)]
+pub async fn webhook_debug(
+    State(state): State<AppState>,
+    repo_query: Query<DebugWebhookQuery>,
+) -> impl IntoResponse {
+    info!("Received request to /webhook_debug");
+
+    let repo_name = repo_query.name.clone();
+    let tracked_branch = repo_query.tracked_branch.clone();
+
+    tokio::task::spawn(async move {
+        let cythe_yml = match retrieve_yaml(
+            &repo_name,
+            tracked_branch.to_string(),
+            "https://github.com".to_string(),
+        )
+        .await
+        {
+            Ok(cy) => cy,
+            Err(e) => {
+                error!("Error when retrieving cythe.yml: {e}");
+                return;
+            }
+        };
+
+        let git_url = format!("https://github.com/{}", repo_name);
+
+        let (image, commands) = match parse_yaml(git_url, cythe_yml) {
+            Ok((image_type, commands)) => (image_type, commands),
+            Err(e) => {
+                error!("{e}");
+                return;
+            }
+        };
+
+        let cache_images = state.config.cache_images;
+        let max_runners = state.config.max_active_runners;
+        let continue_on_fail = state.config.continue_on_fail;
+        info!("Trying to start runner for: {}", repo_name);
+
+        let _permit = state.active_runners.clone().acquire_owned().await.unwrap();
+
+        info!(
+            "Runner started for {}. Active runners: {}/{}",
+            &repo_name,
+            max_runners - state.active_runners.available_permits() as u8,
+            max_runners
+        );
+
+        match runner(image, commands, cache_images, continue_on_fail).await {
+            Ok((logs, failed)) => {
+                info!("Runner for {repo_name} completed successfully");
+                let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();
+                let pipeline_entry = PipelineEntry::new(repo_name.clone(), logs, failed, date);
+                match database::create_pipeline_entry(pipeline_entry) {
+                    Ok(_) => {
+                        info!("Successfully created database log entry for: {}", repo_name);
+                    }
+                    Err(e) => {
+                        error!("Couldn't create database log entry for: {repo_name}. {e}");
+                    }
+                };
+            }
+            Err(e) => error!("Runner failed for {}: {e}", repo_name),
+        }
+
+        //Fixes inaccurate count of active runners
+        drop(_permit);
+
+        info!(
+            "Runner for {} finished. Active runners: {}/{}",
+            repo_name,
+            max_runners - state.active_runners.available_permits() as u8,
+            max_runners
+        );
+    });
+
+    (StatusCode::OK, "").into_response()
 }
 
 #[cfg(test)]
