@@ -20,7 +20,6 @@ pub struct RunStepCommand {
 #[derive(Debug, Deserialize)]
 pub struct CytheYAML {
     pub image: String,
-    pub track: String,
     pub steps: Vec<Step>,
 }
 
@@ -167,7 +166,6 @@ mod tests {
 
         let cythe_yaml = CytheYAML {
             image: String::from("rust:slim-trixie"),
-            track: String::from("main"),
             steps: vec![
                 Step {
                     name: String::from("Checkout"),
@@ -203,7 +201,6 @@ mod tests {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
         let cythe_yaml = CytheYAML {
             image: String::from("rust:slim-trixie"),
-            track: String::from("main"),
             steps: vec![Step {
                 name: String::from("invalid"),
                 run: None,

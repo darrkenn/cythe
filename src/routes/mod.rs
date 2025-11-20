@@ -38,7 +38,6 @@ pub fn create_router(app_state: AppState) -> Router {
         .with_state(app_state)
 }
 
-#[cfg(debug_assertions)]
 pub fn create_router_debug(app_state: AppState) -> Router {
     use crate::routes::webhook::webhook_debug;
 

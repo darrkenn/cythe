@@ -1,5 +1,4 @@
 image: darrkenn/cythe-rust:latest
-track: main
 steps:
   - name: Checkout repo
     use: cythe-checkout

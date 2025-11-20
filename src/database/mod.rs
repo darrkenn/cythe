@@ -38,7 +38,6 @@ pub fn create_tables(allowed_repos: Vec<String>) -> Result<(), Box<dyn std::erro
             fixed_name
         );
         conn.execute(&stmt, [])?;
-        println!("Created table: {}", fixed_name);
     }
     Ok(())
 }

@@ -1,4 +1,3 @@
-#[cfg(debug_assertions)]
 use axum::extract::Query;
 use axum::{
     body::Bytes,
@@ -178,7 +177,6 @@ pub struct DebugWebhookQuery {
     git_url: String,
 }
 
-#[cfg(debug_assertions)]
 pub async fn webhook_debug(
     State(state): State<AppState>,
     repo_query: Query<DebugWebhookQuery>,

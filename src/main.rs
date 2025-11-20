@@ -5,16 +5,13 @@ mod runner;
 use chrono::Local;
 use lazy_static::lazy_static;
 use log::{LevelFilter, info};
-use std::str::FromStr;
+use std::{env, str::FromStr};
 use tera::Tera;
 mod app_state;
 mod database;
 
-use crate::{
-    app_state::load_app_state,
-    database::create_tables,
-    routes::{create_router, create_router_debug},
-};
+use crate::routes::create_router_debug;
+use crate::{app_state::load_app_state, database::create_tables, routes::create_router};
 
 lazy_static! {
     pub static ref TEMPLATES: Tera = {
@@ -51,18 +48,23 @@ fn setup_logger(log_level: &str) -> Result<(), fern::InitError> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().skip(1).collect();
+
     let app_state = load_app_state()?;
     let repos = app_state.repos.as_ref().to_owned();
     create_tables(repos.keys().cloned().collect())?;
     setup_logger(&app_state.config.log_level).expect("Couldnt setup logger");
-    info!("Starting up cythe");
 
-    let router = if cfg!(debug_assertions) {
-        println!("Running in debug mode");
-        create_router_debug(app_state)
-    } else {
-        println!("Running in debug mode");
-        create_router(app_state)
+    let router = match args.first().map(|s| s.as_str()) {
+        None => {
+            info!("Running in release mode");
+            create_router(app_state)
+        }
+        Some("--debug") => {
+            info!("Running in debug mode");
+            create_router_debug(app_state)
+        }
+        Some(opt) => panic!("Not a supported run option: {}", opt),
     };
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:6143").await.unwrap();
