@@ -11,14 +11,30 @@ pub struct Config {
     pub continue_on_fail: bool,
 }
 
+#[derive(Deserialize)]
+pub struct Repo {
+    pub name: String,
+    pub tracked_branch: String,
+    pub url: String,
+}
+
+pub struct RepoInfo {
+    pub tracked_branch: String,
+    pub url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Repos {
+    repo: Vec<Repo>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
-    pub allowed_repos: Arc<Vec<String>>,
+    pub repos: Arc<HashMap<String, RepoInfo>>,
     pub secrets: Arc<HashMap<String, String>>,
     pub active_runners: Arc<Semaphore>,
     pub config: Arc<Config>,
 }
-
 fn load_secrets() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let mut secrets: HashMap<String, String> = HashMap::new();
     let base_dir = std::path::Path::new("/etc/cythe/secrets");
@@ -50,10 +66,8 @@ fn load_secrets() -> Result<HashMap<String, String>, Box<dyn std::error::Error>>
 }
 
 pub fn load_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
-    let data = std::fs::read_to_string("/etc/cythe/allowed-repos.json")?;
-
-    let allowed_repos: Vec<String> =
-        serde_json::from_str(&data).expect("Couldn't parse allowed-repos.json");
+    let repos_data = std::fs::read_to_string("/etc/cythe/repos.toml")?;
+    let repos: Repos = toml::from_str(&repos_data)?;
 
     let secrets = match load_secrets() {
         Ok(s) => s,
@@ -62,11 +76,21 @@ pub fn load_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
         }
     };
 
-    let config_string = std::fs::read_to_string("/etc/cythe/config.toml")?;
-    let config: Config = toml::from_str(&config_string).expect("Couldnt parse config.toml");
+    let config_data = std::fs::read_to_string("/etc/cythe/config.toml")?;
+    let config: Config = toml::from_str(&config_data)?;
+
+    let mut repos_hashmap: HashMap<String, RepoInfo> = HashMap::new();
+
+    for repo in repos.repo {
+        let repo_info = RepoInfo {
+            tracked_branch: repo.tracked_branch,
+            url: repo.url,
+        };
+        repos_hashmap.insert(repo.name, repo_info);
+    }
 
     Ok(AppState {
-        allowed_repos: Arc::new(allowed_repos),
+        repos: Arc::new(repos_hashmap),
         secrets: Arc::new(secrets),
         active_runners: Arc::new(Semaphore::new(config.max_active_runners as usize)),
         config: Arc::new(config),

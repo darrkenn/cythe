@@ -52,8 +52,8 @@ fn setup_logger(log_level: &str) -> Result<(), fern::InitError> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_state = load_app_state()?;
-    let allowed_repos = app_state.allowed_repos.as_ref().to_owned();
-    create_tables(allowed_repos)?;
+    let repos = app_state.repos.as_ref().to_owned();
+    create_tables(repos.keys().cloned().collect())?;
     setup_logger(&app_state.config.log_level).expect("Couldnt setup logger");
     info!("Starting up cythe");
 

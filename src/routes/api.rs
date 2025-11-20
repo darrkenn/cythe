@@ -12,8 +12,7 @@ use tera::Context;
 use crate::{TEMPLATES, app_state::AppState, database::get_latest_entry, routes::RepoQuery};
 
 pub async fn repos(State(state): State<AppState>) -> impl IntoResponse {
-    let repos = state.allowed_repos.as_ref();
-
+    let repos: Vec<String> = state.repos.keys().cloned().collect();
     let list_html: String = repos
         .iter()
         .map(|repo| format!("<li><a href=\"/repo?name={}\">{}</a></li>", repo, repo))

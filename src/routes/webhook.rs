@@ -15,7 +15,6 @@ use subtle::ConstantTimeEq;
 
 #[derive(Deserialize)]
 struct Repository {
-    pub html_url: String,
     pub full_name: String,
 }
 #[derive(Deserialize)]
@@ -53,101 +52,97 @@ pub async fn webhook(
             return (StatusCode::BAD_REQUEST, "").into_response();
         }
     };
-    let repo_full_name = &payload.repository.full_name;
+    let repo_name = payload.repository.full_name.clone();
 
-    if !state.allowed_repos.contains(repo_full_name) {
-        warn!("Received a request from a unallowed repository");
+    if !state.repos.contains_key(&repo_name) {
         return (StatusCode::UNAUTHORIZED, "").into_response();
     }
-    let secret = match state.secrets.get(repo_full_name) {
+
+    let remote_branch = payload.r#ref.strip_prefix("refs/heads/").unwrap();
+    let local_branch = state
+        .repos
+        .get(&repo_name)
+        .map(|ri| ri.tracked_branch.clone())
+        .unwrap();
+
+    if local_branch != remote_branch {
+        warn!(
+            "Remote branch {} does not match local branch {}",
+            remote_branch, local_branch
+        );
+        return (StatusCode::UNAUTHORIZED, "").into_response();
+    } else {
+        println!("Valid branch: {}, Remote: {}", local_branch, remote_branch)
+    }
+
+    let secret = match state.secrets.get(&repo_name) {
         Some(s) => s.trim(),
         None => {
-            warn!("No secret for repo {}", repo_full_name);
+            warn!("No secret for repo {}", repo_name);
             return (StatusCode::UNAUTHORIZED, "").into_response();
         }
     };
     if !verify_signature(secret, signature, &body[..]) {
-        warn!("Invalid signature for {}", repo_full_name);
+        warn!("Invalid signature for {}", repo_name);
         return (StatusCode::UNAUTHORIZED, "").into_response();
     }
 
-    tokio::task::spawn(async move {
-        let tracked_branch = match payload.r#ref.strip_prefix("refs/heads/") {
-            Some(tb) => tb,
-            None => {
-                error!("Malformed JSON or branch isn't included");
-                return;
-            }
-        };
-        let repo_full_name = payload.repository.full_name;
+    let git_url = state.repos.get(&repo_name).unwrap().url.clone();
 
-        let cythe_yml = match retrieve_yaml(
-            &repo_full_name,
-            tracked_branch.to_string(),
-            "https://github.com".to_string(),
-        )
-        .await
-        {
+    tokio::task::spawn(async move {
+        let cythe_yml = match retrieve_yaml(local_branch, git_url.clone()).await {
             Ok(cy) => cy,
             Err(e) => {
                 error!("Error when retrieving cythe.yml: {e}");
                 return;
             }
         };
-        if cythe_yml.track == tracked_branch {
-            let (image, commands) = match parse_yaml(payload.repository.html_url, cythe_yml) {
-                Ok((image_type, commands)) => (image_type, commands),
-                Err(e) => {
-                    error!("{e}");
-                    return;
-                }
-            };
-            let cache_images = state.config.cache_images;
-            let max_runners = state.config.max_active_runners;
-            let continue_on_fail = state.config.continue_on_fail;
-            info!("Trying to start runner for: {}", repo_full_name);
-            let _permit = state.active_runners.clone().acquire_owned().await.unwrap();
-
-            info!(
-                "Runner started for {}. Active runners: {}/{}",
-                &repo_full_name,
-                max_runners - state.active_runners.available_permits() as u8,
-                max_runners
-            );
-
-            match runner(image, commands, cache_images, continue_on_fail).await {
-                Ok((logs, failed)) => {
-                    info!("Runner for {repo_full_name} completed successfully");
-                    let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();
-                    let pipeline_entry =
-                        PipelineEntry::new(repo_full_name.clone(), logs, failed, date);
-                    match database::create_pipeline_entry(pipeline_entry) {
-                        Ok(_) => {
-                            info!(
-                                "Successfully created database log entry for: {}",
-                                repo_full_name
-                            );
-                        }
-                        Err(e) => {
-                            error!("Couldn't create database log entry for: {repo_full_name}. {e}");
-                        }
-                    };
-                }
-                Err(e) => error!("Runner failed for {}: {e}", repo_full_name),
+        let (image, commands) = match parse_yaml(git_url, cythe_yml) {
+            Ok((image_type, commands)) => (image_type, commands),
+            Err(e) => {
+                error!("{e}");
+                return;
             }
+        };
+        let cache_images = state.config.cache_images;
+        let max_runners = state.config.max_active_runners;
+        let continue_on_fail = state.config.continue_on_fail;
+        info!("Trying to start runner for: {}", repo_name);
+        let _permit = state.active_runners.clone().acquire_owned().await.unwrap();
 
-            //Fixes inaccurate count of active runners
-            drop(_permit);
+        info!(
+            "Runner started for {}. Active runners: {}/{}",
+            &repo_name,
+            max_runners - state.active_runners.available_permits() as u8,
+            max_runners
+        );
 
-            info!(
-                "Runner for {} finished. Active runners: {}/{}",
-                repo_full_name,
-                max_runners - state.active_runners.available_permits() as u8,
-                max_runners
-            );
-        } else {
-            info!("Not tracking the branch: {}", tracked_branch);
+        match runner(image, commands, cache_images, continue_on_fail).await {
+            Ok((logs, failed)) => {
+                info!("Runner for {repo_name} completed successfully");
+                let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();
+                let pipeline_entry = PipelineEntry::new(repo_name.clone(), logs, failed, date);
+                match database::create_pipeline_entry(pipeline_entry) {
+                    Ok(_) => {
+                        info!("Successfully created database log entry for: {}", repo_name);
+                    }
+                    Err(e) => {
+                        error!("Couldn't create database log entry for: {repo_name}. {e}");
+                    }
+                };
+            }
+            Err(e) => error!("Runner failed for {}: {e}", repo_name),
         }
+
+        //Fixes inaccurate count of active runners
+        drop(_permit);
+
+        info!(
+            "Runner for {} finished. Active runners: {}/{}",
+            repo_name,
+            max_runners - state.active_runners.available_permits() as u8,
+            max_runners
+        );
     });
 
     (StatusCode::OK, "").into_response()
@@ -180,6 +175,7 @@ fn verify_signature(secret: &str, signature: &str, body_bytes: &[u8]) -> bool {
 pub struct DebugWebhookQuery {
     name: String,
     tracked_branch: String,
+    git_url: String,
 }
 
 #[cfg(debug_assertions)]
@@ -190,16 +186,32 @@ pub async fn webhook_debug(
     info!("Received request to /webhook_debug");
 
     let repo_name = repo_query.name.clone();
-    let tracked_branch = repo_query.tracked_branch.clone();
+    let remote_branch = repo_query.tracked_branch.clone();
+    let git_url = repo_query.git_url.clone();
+
+    let local_branch = match state.repos.get(&repo_name) {
+        Some(ri) => ri.tracked_branch.clone(),
+        None => {
+            warn!("Repository {} not found", repo_name);
+            warn!(
+                "Available repos: {:?}",
+                state.repos.keys().collect::<Vec<_>>()
+            );
+            return (StatusCode::UNAUTHORIZED, "").into_response();
+        }
+    };
+    if local_branch != remote_branch {
+        warn!(
+            "Remote branch {} does not match local branch {}",
+            remote_branch, local_branch
+        );
+        return (StatusCode::UNAUTHORIZED, "").into_response();
+    } else {
+        println!("Valid branch: {}, Remote: {}", local_branch, remote_branch)
+    }
 
     tokio::task::spawn(async move {
-        let cythe_yml = match retrieve_yaml(
-            &repo_name,
-            tracked_branch.to_string(),
-            "https://github.com".to_string(),
-        )
-        .await
-        {
+        let cythe_yml = match retrieve_yaml(remote_branch, git_url).await {
             Ok(cy) => cy,
             Err(e) => {
                 error!("Error when retrieving cythe.yml: {e}");

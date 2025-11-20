@@ -99,15 +99,13 @@ pub fn parse_yaml(
 }
 
 pub async fn retrieve_yaml(
-    repo_full_name: &str,
     tracked_branch: String,
     //Git Hosting Platform URL
-    ghp_url: String,
+    git_url: String,
 ) -> Result<CytheYAML, YamlError> {
-    let repo_url = format!("{}/{}.git", ghp_url, repo_full_name);
     let temp_path = format!("/tmp/cythe-{}", Uuid::new_v4());
 
-    let repo = Repository::clone(&repo_url, &temp_path).map_err(|e| {
+    let repo = Repository::clone(&git_url, &temp_path).map_err(|e| {
         error!("{e}");
         YamlError::Git(GitError::CloneFailed(e.to_string()))
     })?;
