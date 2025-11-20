@@ -24,8 +24,6 @@ struct Payload {
     pub repository: Repository,
 }
 
-#[cfg(debug_assertions)]
-use crate::routes::RepoQuery;
 use crate::{
     app_state::AppState,
     database::{self, PipelineEntry},
