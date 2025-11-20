@@ -8,6 +8,6 @@ steps:
   - name: Create files
     run: touch /etc/cythe/allowed-repos.json && touch /etc/cythe/config.toml && touch /etc/cythe/secrets/darrkenn/cythe.secret
   - name: Modify files
-    run: printf \[\"darrkenn/cythe\"\] >> /etc/cythe/allowed-repos.json && printf "9e989623257bb798879f668168fa1f3efbfce4c458a985896ef1d414fd6e733c\n" >> /etc/cythe/secrets/darrkenn/cythe.secret && printf "cache_images = true\nmax_active_runners = 2\nlog_level=\"info\"\ncontinue_on_fail = false\n" >> /etc/cythe/config.toml
+    run: printf [\"darrkenn/cythe\"] >> /etc/cythe/allowed-repos.json && printf "9e989623257bb798879f668168fa1f3efbfce4c458a985896ef1d414fd6e733c\n" >> /etc/cythe/secrets/darrkenn/cythe.secret && printf "cache_images = true\nmax_active_runners = 2\nlog_level=\"info\"\ncontinue_on_fail = false\n" >> /etc/cythe/config.toml
   - name: Run tests
     run: cargo test -q
