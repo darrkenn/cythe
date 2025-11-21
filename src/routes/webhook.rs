@@ -88,16 +88,17 @@ pub async fn webhook(
     }
 
     let git_url = state.repos.get(&repo_name).unwrap().url.clone();
+    let repo_secrets = state.repos.get(&repo_name).unwrap().secrets.clone();
 
     tokio::task::spawn(async move {
-        let cythe_yml = match retrieve_yaml(local_branch, git_url.clone()).await {
+        let cythe_yml = match retrieve_yaml(local_branch, &git_url).await {
             Ok(cy) => cy,
             Err(e) => {
                 error!("Error when retrieving cythe.yml: {e}");
                 return;
             }
         };
-        let (image, commands) = match parse_yaml(git_url, cythe_yml) {
+        let (image, commands) = match parse_yaml(&git_url, cythe_yml, repo_secrets) {
             Ok((image_type, commands)) => (image_type, commands),
             Err(e) => {
                 error!("{e}");
@@ -189,6 +190,7 @@ pub async fn webhook_debug(
     let remote_branch = repo_query.tracked_branch.clone();
     let git_url = repo_query.git_url.clone();
     let cythe_yml_location = repo_query.cythe_yml_location.clone();
+    let repo_secrets = state.repos.get(&repo_name).unwrap().secrets.clone();
 
     let local_branch = match state.repos.get(&repo_name) {
         Some(ri) => ri.tracked_branch.clone(),
@@ -222,7 +224,7 @@ pub async fn webhook_debug(
                 }
             }
         } else {
-            match retrieve_yaml(remote_branch, git_url).await {
+            match retrieve_yaml(remote_branch, &git_url).await {
                 Ok(cy) => cy,
                 Err(e) => {
                     error!("Error when retrieving cythe.yml: {e}");
@@ -231,9 +233,7 @@ pub async fn webhook_debug(
             }
         };
 
-        let git_url = format!("https://github.com/{}", repo_name);
-
-        let (image, commands) = match parse_yaml(git_url, cythe_yml) {
+        let (image, commands) = match parse_yaml(&git_url, cythe_yml, repo_secrets) {
             Ok((image_type, commands)) => (image_type, commands),
             Err(e) => {
                 error!("{e}");

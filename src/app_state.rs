@@ -16,11 +16,13 @@ pub struct Repo {
     pub name: String,
     pub tracked_branch: String,
     pub url: String,
+    pub secrets: Option<HashMap<String, String>>,
 }
 
 pub struct RepoInfo {
     pub tracked_branch: String,
     pub url: String,
+    pub secrets: Option<HashMap<String, String>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -85,6 +87,7 @@ pub fn load_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
         let repo_info = RepoInfo {
             tracked_branch: repo.tracked_branch,
             url: repo.url,
+            secrets: repo.secrets,
         };
         repos_hashmap.insert(repo.name, repo_info);
     }

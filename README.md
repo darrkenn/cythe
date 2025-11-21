@@ -14,6 +14,10 @@ name = "darrkenn/cythe"
 tracked_branch = "main"
 url = "https://github.com/darrkenn/cythe"
 
+# Optionally add secrets
+[repo.secrets]
+SECRET = "im secret"
+
 [[repo]]
 name = "darrkenn/cythe-test"
 tracked_branch = "main"
@@ -33,12 +37,15 @@ Configure cythe's runtime options at `/etc/cythe/config.toml`.
 ```toml
 # Whether or not to cache container images between runs
 cache_images = true
+
 # Maximum number of concurrent runners
 # Max is 255 but 4 is recommended
 max_active_runners = 4
+
 # Logging level
 # Options: "error", "warn", "info", "trace"
 log_level = "info"
+
 # Whether or not to continue executing steps if one fails
 continue_on_fail = false
 ```

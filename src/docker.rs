@@ -112,9 +112,12 @@ pub async fn cleanup_docker(
 }
 
 pub async fn stop_container(docker: &Docker, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    docker
-        .stop_container(name, None::<StopContainerOptions>)
-        .await?;
+    //Immediately stop the container
+    let options = Some(StopContainerOptions {
+        signal: Some("SIGKILL".to_string()),
+        t: None,
+    });
+    docker.stop_container(name, options).await?;
     info!("Stopped container {}", name);
     Ok(())
 }

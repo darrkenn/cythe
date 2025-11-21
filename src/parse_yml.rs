@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use git2::{BranchType, Repository};
 use log::error;
@@ -68,8 +68,9 @@ impl ::std::fmt::Display for GitError {
 }
 
 pub fn parse_yaml(
-    git_url: String,
+    git_url: &String,
     cythe_yml: CytheYAML,
+    repo_secrets: Option<HashMap<String, String>>,
 ) -> Result<(String, Vec<RunStepCommand>), YamlError> {
     let mut steps: Vec<RunStepCommand> = Vec::new();
 
@@ -87,24 +88,53 @@ pub fn parse_yaml(
             }
         }
         if let Some(run) = step.run {
+            let command = if let Some(repo_secrets) = &repo_secrets {
+                replace_secrets(run, repo_secrets)
+            } else {
+                run
+            };
             steps.push(RunStepCommand {
                 name: step.name,
-                command: run,
+                command,
             })
         }
     }
-
     Ok((cythe_yml.image, steps))
 }
 
-pub async fn retrieve_yaml(
-    tracked_branch: String,
-    //Git Hosting Platform URL
-    git_url: String,
-) -> Result<CytheYAML, YamlError> {
+fn replace_secrets(command: String, secrets: &HashMap<String, String>) -> String {
+    let mut result = String::new();
+    let mut chars = command.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '$' && chars.peek() == Some(&'{') {
+            chars.next();
+            let mut key = String::new();
+
+            while let Some(&c) = chars.peek() {
+                if c == '}' {
+                    chars.next();
+                    break;
+                }
+                key.push(chars.next().unwrap());
+            }
+
+            if let Some(value) = secrets.get(&key) {
+                result.push_str(value);
+            } else {
+                result.push_str(&format!("${{{}}}", key));
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+pub async fn retrieve_yaml(tracked_branch: String, git_url: &str) -> Result<CytheYAML, YamlError> {
     let temp_path = format!("/tmp/cythe-{}", Uuid::new_v4());
 
-    let repo = Repository::clone(&git_url, &temp_path).map_err(|e| {
+    let repo = Repository::clone(git_url, &temp_path).map_err(|e| {
         error!("{e}");
         YamlError::Git(GitError::CloneFailed(e.to_string()))
     })?;
@@ -161,7 +191,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_parse_yaml_successful() {
+    async fn parse_yaml_successful() {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
 
         let cythe_yaml = CytheYAML {
@@ -181,7 +211,7 @@ mod tests {
         };
 
         let (image, commands) =
-            parse_yaml(git_url, cythe_yaml).expect("Couldnt create docker file");
+            parse_yaml(&git_url, cythe_yaml, None).expect("Couldnt create docker file");
         let command_one: &RunStepCommand = &commands[0];
         let command_two: &RunStepCommand = &commands[1];
 
@@ -197,7 +227,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_parse_yaml_invalid_use_command() {
+    async fn parse_yaml_invalid_use_command() {
         let git_url = "https://github.com/darrkenn/cythe".to_string();
         let cythe_yaml = CytheYAML {
             image: String::from("rust:slim-trixie"),
@@ -208,10 +238,27 @@ mod tests {
             }],
         };
 
-        let result = parse_yaml(git_url, cythe_yaml);
+        let result = parse_yaml(&git_url, cythe_yaml, None);
         match result {
             Err(YamlError::NotAUseCommand(cmd)) => assert_eq!(cmd, "invalid"),
             _ => panic!("Expected error NotAUseCommand"),
         }
+    }
+
+    #[tokio::test]
+    async fn replace_secrets_successful() {
+        let mut secrets: HashMap<String, String> = HashMap::new();
+        secrets.insert(String::from("HELLO"), String::from("hi"));
+        let command = String::from("echo ${HELLO}");
+        let replaced_command = replace_secrets(command, &secrets);
+        assert_eq!(replaced_command, "echo hi");
+    }
+
+    #[tokio::test]
+    async fn replace_secrets_no_matching_secret() {
+        let secrets: HashMap<String, String> = HashMap::new();
+        let command = String::from("echo ${HELLO}");
+        let replaced_command = replace_secrets(command, &secrets);
+        assert_eq!(replaced_command, "echo ${HELLO}");
     }
 }
