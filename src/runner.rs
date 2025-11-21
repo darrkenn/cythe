@@ -1,5 +1,5 @@
 use bollard::Docker;
-use log::error;
+use log::{error, info};
 use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -33,7 +33,7 @@ pub async fn runner(
         }
     }
 
-    let container = match start_container(&docker, &name, &image).await {
+    match start_container(&docker, &name, &image).await {
         Ok(c) => c,
         Err(e) => {
             error!("{e}");
@@ -45,7 +45,7 @@ pub async fn runner(
     for step in commands {
         let (step_name, command) = (step.name, step.command);
         let command_vec: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
-        println!("Running step {step_name}");
+        info!("Running step {step_name}");
         let (messages, success) = run_command(&docker, &name, command_vec).await?;
         let step_message = StepMessage {
             name: step_name,
@@ -73,7 +73,7 @@ pub async fn runner(
         }
     }
 
-    match cleanup_docker(&docker, container, &name, &image, cache_images).await {
+    match cleanup_docker(&docker, &name, &image, cache_images).await {
         Ok(_) => {}
         Err(e) => {
             error!("{e}");

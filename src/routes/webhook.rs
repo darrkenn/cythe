@@ -37,7 +37,6 @@ pub async fn webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    info!("Post request to /webhook received");
     let signature = match headers.get("X-Hub-Signature-256") {
         Some(sig) => sig.to_str().unwrap_or(""),
         None => {
@@ -71,9 +70,7 @@ pub async fn webhook(
             remote_branch, local_branch
         );
         return (StatusCode::UNAUTHORIZED, "").into_response();
-    } else {
-        println!("Valid branch: {}, Remote: {}", local_branch, remote_branch)
-    }
+    };
 
     let secret = match state.secrets.get(&repo_name) {
         Some(s) => s.trim(),
@@ -108,7 +105,7 @@ pub async fn webhook(
         let cache_images = state.config.cache_images;
         let max_runners = state.config.max_active_runners;
         let continue_on_fail = state.config.continue_on_fail;
-        info!("Trying to start runner for: {}", repo_name);
+
         let _permit = state.active_runners.clone().acquire_owned().await.unwrap();
 
         info!(
@@ -118,29 +115,31 @@ pub async fn webhook(
             max_runners
         );
 
-        match runner(image, commands, cache_images, continue_on_fail).await {
+        let status = match runner(image, commands, cache_images, continue_on_fail).await {
             Ok((logs, failed)) => {
-                info!("Runner for {repo_name} completed successfully");
                 let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();
                 let pipeline_entry = PipelineEntry::new(repo_name.clone(), logs, failed, date);
                 match database::create_pipeline_entry(pipeline_entry) {
-                    Ok(_) => {
-                        info!("Successfully created database log entry for: {}", repo_name);
-                    }
+                    Ok(_) => {}
                     Err(e) => {
                         error!("Couldn't create database log entry for: {repo_name}. {e}");
                     }
                 };
+                "successfully"
             }
-            Err(e) => error!("Runner failed for {}: {e}", repo_name),
-        }
+            Err(e) => {
+                error!("Runner failed for {}: {e}", repo_name);
+                "unsuccessfully"
+            }
+        };
 
         //Fixes inaccurate count of active runners
         drop(_permit);
 
         info!(
-            "Runner for {} finished. Active runners: {}/{}",
+            "Runner for {} finished {}. Active runners: {}/{}",
             repo_name,
+            status,
             max_runners - state.active_runners.available_permits() as u8,
             max_runners
         );
@@ -184,8 +183,6 @@ pub async fn webhook_debug(
     State(state): State<AppState>,
     repo_query: Query<DebugWebhookQuery>,
 ) -> impl IntoResponse {
-    info!("Received request to /webhook_debug");
-
     let repo_name = repo_query.name.clone();
     let remote_branch = repo_query.tracked_branch.clone();
     let git_url = repo_query.git_url.clone();
@@ -209,9 +206,7 @@ pub async fn webhook_debug(
             remote_branch, local_branch
         );
         return (StatusCode::UNAUTHORIZED, "").into_response();
-    } else {
-        println!("Valid branch: {}, Remote: {}", local_branch, remote_branch)
-    }
+    };
 
     tokio::task::spawn(async move {
         let cythe_yml = if let Some(cythe_yml_location) = cythe_yml_location {
@@ -244,7 +239,6 @@ pub async fn webhook_debug(
         let cache_images = state.config.cache_images;
         let max_runners = state.config.max_active_runners;
         let continue_on_fail = state.config.continue_on_fail;
-        info!("Trying to start runner for: {}", repo_name);
 
         let _permit = state.active_runners.clone().acquire_owned().await.unwrap();
 
@@ -255,29 +249,31 @@ pub async fn webhook_debug(
             max_runners
         );
 
-        match runner(image, commands, cache_images, continue_on_fail).await {
+        let status = match runner(image, commands, cache_images, continue_on_fail).await {
             Ok((logs, failed)) => {
-                info!("Runner for {repo_name} completed successfully");
                 let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();
                 let pipeline_entry = PipelineEntry::new(repo_name.clone(), logs, failed, date);
                 match database::create_pipeline_entry(pipeline_entry) {
-                    Ok(_) => {
-                        info!("Successfully created database log entry for: {}", repo_name);
-                    }
+                    Ok(_) => {}
                     Err(e) => {
                         error!("Couldn't create database log entry for: {repo_name}. {e}");
                     }
                 };
+                "successfully"
             }
-            Err(e) => error!("Runner failed for {}: {e}", repo_name),
-        }
+            Err(e) => {
+                error!("Runner failed for {}: {e}", repo_name);
+                "unsuccessfully"
+            }
+        };
 
         //Fixes inaccurate count of active runners
         drop(_permit);
 
         info!(
-            "Runner for {} finished. Active runners: {}/{}",
+            "Runner for {} finished {}. Active runners: {}/{}",
             repo_name,
+            status,
             max_runners - state.active_runners.available_permits() as u8,
             max_runners
         );

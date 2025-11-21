@@ -9,7 +9,7 @@ use bollard::{
     secret::{ContainerCreateBody, ContainerCreateResponse, ExecConfig},
 };
 use futures_util::StreamExt;
-use log::{error, info};
+use log::error;
 use serde_json::json;
 
 #[derive(Debug)]
@@ -42,7 +42,6 @@ impl From<bollard::errors::Error> for ContainerError {
 
 pub async fn pull_image(docker: &Docker, image: &str) -> Result<(), Box<dyn std::error::Error>> {
     if docker.inspect_image(image).await.is_ok() {
-        println!("Image exists");
         return Ok(());
     };
 
@@ -50,7 +49,6 @@ pub async fn pull_image(docker: &Docker, image: &str) -> Result<(), Box<dyn std:
 
     let mut pull_stream = docker.create_image(Some(options), None, None);
 
-    info!("Pulling image: {}", image);
     while let Some(result) = pull_stream.next().await {
         match result {
             Ok(_) => {}
@@ -60,8 +58,6 @@ pub async fn pull_image(docker: &Docker, image: &str) -> Result<(), Box<dyn std:
             }
         }
     }
-
-    info!("Successfully pulled image: {image}");
     Ok(())
 }
 
@@ -80,19 +76,16 @@ pub async fn start_container(
 
     let options = CreateContainerOptionsBuilder::new().name(name).build();
     let container = docker.create_container(Some(options), config).await?;
-    info!("Created container: {}", container.id);
 
     docker
         .start_container(name, None::<StartContainerOptions>)
         .await?;
-    info!("Started container: {}", container.id);
 
     Ok(container)
 }
 
 pub async fn cleanup_docker(
     docker: &Docker,
-    container: ContainerCreateResponse,
     name: &str,
     image_name: &str,
     cache_images: bool,
@@ -100,13 +93,11 @@ pub async fn cleanup_docker(
     docker
         .remove_container(name, None::<RemoveContainerOptions>)
         .await?;
-    info!("Removed container: {}", container.id);
 
     if !cache_images {
         docker
             .remove_image(image_name, None::<RemoveImageOptions>, None)
             .await?;
-        info!("Removed image: {}", &image_name);
     }
     Ok(())
 }
@@ -118,7 +109,6 @@ pub async fn stop_container(docker: &Docker, name: &str) -> Result<(), Box<dyn s
         t: None,
     });
     docker.stop_container(name, options).await?;
-    info!("Stopped container {}", name);
     Ok(())
 }
 
