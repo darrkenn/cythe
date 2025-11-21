@@ -22,6 +22,7 @@ struct Payload {
     pub repository: Repository,
 }
 
+use crate::parse_yml::CytheYAML;
 use crate::{
     app_state::AppState,
     database::{self, PipelineEntry},
@@ -175,6 +176,7 @@ pub struct DebugWebhookQuery {
     name: String,
     tracked_branch: String,
     git_url: String,
+    cythe_yml_location: Option<String>,
 }
 
 pub async fn webhook_debug(
@@ -186,6 +188,7 @@ pub async fn webhook_debug(
     let repo_name = repo_query.name.clone();
     let remote_branch = repo_query.tracked_branch.clone();
     let git_url = repo_query.git_url.clone();
+    let cythe_yml_location = repo_query.cythe_yml_location.clone();
 
     let local_branch = match state.repos.get(&repo_name) {
         Some(ri) => ri.tracked_branch.clone(),
@@ -209,11 +212,22 @@ pub async fn webhook_debug(
     }
 
     tokio::task::spawn(async move {
-        let cythe_yml = match retrieve_yaml(remote_branch, git_url).await {
-            Ok(cy) => cy,
-            Err(e) => {
-                error!("Error when retrieving cythe.yml: {e}");
-                return;
+        let cythe_yml = if let Some(cythe_yml_location) = cythe_yml_location {
+            let content = std::fs::read_to_string(cythe_yml_location).unwrap();
+            match serde_yaml::from_str::<CytheYAML>(&content) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Can't parse cythe.yml: {e}");
+                    return;
+                }
+            }
+        } else {
+            match retrieve_yaml(remote_branch, git_url).await {
+                Ok(cy) => cy,
+                Err(e) => {
+                    error!("Error when retrieving cythe.yml: {e}");
+                    return;
+                }
             }
         };
 
