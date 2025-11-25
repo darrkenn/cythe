@@ -3,8 +3,14 @@ steps:
   - name: Checkout repo
     use: cythe-checkout
   - name: Create directories
-    run: mkdir /etc/cythe && mkdir -p /etc/cythe/secrets/darrkenn
+    run: mkdir -p /etc/cythe/secrets/darrkenn
   - name: Create secret file
     run: touch /etc/cythe/secrets/darrkenn/cythe.secret && printf "9e989623257bb798879f668168fa1f3efbfce4c458a985896ef1d414fd6e733c\n" >> /etc/cythe/secrets/darrkenn/cythe.secret
   - name: Run tests
     run: cargo test -q
+  - name: Check log
+    run: ls /var/log/cythe
+  - name: Check cythe
+    run: ls /etc/cythe
+  - name: Check lib
+    run: ls /var/lib/cythe

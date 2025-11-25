@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fs, io::Write, sync::Arc};
 
 use serde::Deserialize;
 use tokio::sync::Semaphore;
@@ -67,16 +67,46 @@ fn load_secrets() -> Result<HashMap<String, String>, Box<dyn std::error::Error>>
     Ok(secrets)
 }
 
+fn create_directories_files() -> Result<(), Box<dyn std::error::Error>> {
+    let dirs: Vec<&str> = vec![
+        "/etc/cythe",
+        "/var/log/cythe",
+        "/var/lib/cythe",
+        "/etc/cythe/secrets",
+    ];
+    let files: Vec<&str> = vec![
+        "/etc/cythe/config.toml",
+        "/etc/cythe/repos.toml",
+        "/var/log/cythe/cythe.log",
+        "/var/lib/cythe/cythe.db",
+    ];
+
+    for dir in dirs {
+        fs::create_dir_all(dir)?;
+    }
+    for file in files {
+        if !std::path::Path::new(file).exists() {
+            let mut created_file = fs::File::create(file)?;
+            let content = match file {
+                "/etc/cythe/config.toml" => {
+                    "cache_images = true\nmax_active_runners = 2\nlog_level = \"info\"\ncontinue_on_fail = false"
+                }
+                "/etc/cythe/repos.toml" => {
+                    "[[repo]]\nname = \"org/name\"\ntracked_branch = \"main\"\nurl = \"https://github.com/org/name\"\n[repo.secrets]\nSECRET = \"secret\""
+                }
+                _ => continue,
+            };
+            created_file.write_all(content.as_bytes())?;
+        }
+    }
+    Ok(())
+}
+
 pub fn load_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
+    create_directories_files()?;
     let repos_data = std::fs::read_to_string("/etc/cythe/repos.toml")?;
     let repos: Repos = toml::from_str(&repos_data)?;
-
-    let secrets = match load_secrets() {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(e);
-        }
-    };
+    let secrets = load_secrets()?;
 
     let config_data = std::fs::read_to_string("/etc/cythe/config.toml")?;
     let config: Config = toml::from_str(&config_data)?;
@@ -107,6 +137,14 @@ mod tests {
     #[tokio::test]
     async fn load_secrets_successful() {
         match load_secrets() {
+            Ok(_) => {}
+            Err(e) => panic!("{e}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_directories_files() {
+        match create_directories_files() {
             Ok(_) => {}
             Err(e) => panic!("{e}"),
         }
