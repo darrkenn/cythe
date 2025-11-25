@@ -49,3 +49,23 @@ log_level = "info"
 # Whether or not to continue executing steps if one fails
 continue_on_fail = false
 ```
+
+## cythe.yml example
+```yml
+# Which docker image to run
+image: darrkenn/cythe-rust:latest
+steps:
+    # Steps are defined with a name and either a use or run command
+    - name: Checkout repo
+      # Use commands are built-in to cythe
+      # This one clones the repo into the current folder
+      use: cythe-checkout
+
+    - name: Run tests
+      # Run commands are commands that will be run in the containers shell.
+      run: cargo test -q
+
+    - name: Publish crate
+      # Secrets are defined in repos.toml and can be accessed with this syntax: ${NAME}
+      run: cargo publish --token ${CRATES_IO_TOKEN}
+```
