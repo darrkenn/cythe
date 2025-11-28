@@ -57,7 +57,10 @@ pub async fn webhook(
         return (StatusCode::UNAUTHORIZED, "").into_response();
     }
 
-    let remote_branch = payload.r#ref.strip_prefix("refs/heads/").unwrap();
+    let remote_branch = match payload.r#ref.strip_prefix("refs/heads/") {
+        Some(remote_branch) => remote_branch,
+        None => return (StatusCode::BAD_REQUEST).into_response(),
+    };
     let local_branch = state
         .repos
         .get(&repo_name)
