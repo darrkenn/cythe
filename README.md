@@ -48,6 +48,12 @@ log_level = "info"
 
 # Whether or not to continue executing steps if one fails
 continue_on_fail = false
+
+# Telefy is a library for sending logging messages to Telegram.
+[telefy]
+enabled = true 
+token = "TOKEN" 
+chat_id = "CHAT_ID"
 ```
 
 ## cythe.yml example

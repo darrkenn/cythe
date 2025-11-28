@@ -20,16 +20,17 @@ pub async fn runner(
     commands: Vec<RunStepCommand>,
     cache_images: bool,
     continue_on_fail: bool,
-) -> Result<(String, bool), Box<dyn std::error::Error>> {
+) -> Result<(String, bool, Option<String>), anyhow::Error> {
     let docker = Docker::connect_with_unix_defaults()?;
     let name = format!("cythe-{}", Uuid::new_v4());
     let mut failed = false;
+    let mut step_failed_on: Option<String> = None;
 
     match pull_image(&docker, &image).await {
         Ok(_) => {}
         Err(e) => {
             error!("{e}");
-            return Err(e);
+            return Err(anyhow::Error::from(e));
         }
     }
 
@@ -37,7 +38,7 @@ pub async fn runner(
         Ok(c) => c,
         Err(e) => {
             error!("{e}");
-            return Err(e);
+            return Err(anyhow::Error::from(e));
         }
     };
 
@@ -45,10 +46,13 @@ pub async fn runner(
     for step in commands {
         let (step_name, command) = (step.name, step.command);
         let command_vec: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
-        info!("Running step {step_name}");
-        let (messages, success) = run_command(&docker, &name, command_vec).await?;
+        info!("Running step {}", &step_name);
+        let (messages, success) = match run_command(&docker, &name, command_vec).await {
+            Ok((m, s)) => (m, s),
+            Err(e) => return Err(anyhow::Error::from(e)),
+        };
         let step_message = StepMessage {
-            name: step_name,
+            name: step_name.clone(),
             messages: json!(messages),
         };
 
@@ -56,6 +60,7 @@ pub async fn runner(
 
         if !success {
             failed = true;
+            step_failed_on = Some(step_name);
             if !continue_on_fail {
                 break;
             }
@@ -69,7 +74,7 @@ pub async fn runner(
         Ok(_) => {}
         Err(e) => {
             error!("{e}");
-            return Err(e);
+            return Err(anyhow::Error::from(e));
         }
     }
 
@@ -77,9 +82,9 @@ pub async fn runner(
         Ok(_) => {}
         Err(e) => {
             error!("{e}");
-            return Err(e);
+            return Err(anyhow::Error::from(e));
         }
     };
 
-    Ok((logs, failed))
+    Ok((logs, failed, step_failed_on))
 }

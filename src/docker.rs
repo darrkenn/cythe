@@ -40,7 +40,7 @@ impl From<bollard::errors::Error> for ContainerError {
     }
 }
 
-pub async fn pull_image(docker: &Docker, image: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn pull_image(docker: &Docker, image: &str) -> Result<(), anyhow::Error> {
     if docker.inspect_image(image).await.is_ok() {
         return Ok(());
     };
@@ -54,7 +54,7 @@ pub async fn pull_image(docker: &Docker, image: &str) -> Result<(), Box<dyn std:
             Ok(_) => {}
             Err(e) => {
                 error!("Error during image pull: {e}");
-                return Err(Box::new(e));
+                return Err(anyhow::Error::from(e));
             }
         }
     }
@@ -65,7 +65,7 @@ pub async fn start_container(
     docker: &Docker,
     name: &str,
     image_name: &str,
-) -> Result<ContainerCreateResponse, Box<dyn std::error::Error>> {
+) -> Result<ContainerCreateResponse, anyhow::Error> {
     let config = ContainerCreateBody {
         hostname: Some(name.to_string()),
         image: Some(image_name.to_string()),
@@ -89,7 +89,7 @@ pub async fn cleanup_docker(
     name: &str,
     image_name: &str,
     cache_images: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     docker
         .remove_container(name, None::<RemoveContainerOptions>)
         .await?;
@@ -102,7 +102,7 @@ pub async fn cleanup_docker(
     Ok(())
 }
 
-pub async fn stop_container(docker: &Docker, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn stop_container(docker: &Docker, name: &str) -> Result<(), anyhow::Error> {
     //Immediately stop the container
     let options = Some(StopContainerOptions {
         signal: Some("SIGKILL".to_string()),
@@ -126,7 +126,7 @@ pub async fn run_command(
     docker: &Docker,
     name: &str,
     command: Vec<String>,
-) -> Result<(Vec<serde_json::Value>, bool), Box<dyn std::error::Error>> {
+) -> Result<(Vec<serde_json::Value>, bool), anyhow::Error> {
     inspect_container(docker, name).await?;
     let config = ExecConfig {
         attach_stdout: Some(true),
