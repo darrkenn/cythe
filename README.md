@@ -1,6 +1,6 @@
 # cythe
 
-A lightweight CI program that uses docker to test and build your applications.
+A lightweight CI service that uses docker to test and build your applications.
 
 ## Config
 
