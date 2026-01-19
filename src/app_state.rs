@@ -9,14 +9,6 @@ pub struct Config {
     pub max_active_runners: u8,
     pub log_level: String,
     pub continue_on_fail: bool,
-    pub telefy: Option<Telefy>,
-}
-
-#[derive(Deserialize, Clone)]
-pub struct Telefy {
-    pub enabled: bool,
-    pub token: String,
-    pub chat_id: String,
 }
 
 #[derive(Deserialize)]
@@ -43,7 +35,6 @@ pub struct AppState {
     pub repos: Arc<HashMap<String, RepoInfo>>,
     pub secrets: Arc<HashMap<String, String>>,
     pub active_runners: Arc<Semaphore>,
-    pub telefy_enabled: bool,
     pub config: Arc<Config>,
 }
 
@@ -99,7 +90,7 @@ fn create_directories_files() -> Result<(), Box<dyn std::error::Error>> {
             let mut created_file = fs::File::create(file)?;
             let content = match file {
                 "/etc/cythe/config.toml" => {
-                    "cache_images = true\nmax_active_runners = 2\nlog_level = \"info\"\ncontinue_on_fail = false\ntelefy_enabled = true"
+                    "cache_images = true\nmax_active_runners = 2\nlog_level = \"info\"\ncontinue_on_fail = false\n"
                 }
                 "/etc/cythe/repos.toml" => {
                     "[[repo]]\nname = \"org/name\"\ntracked_branch = \"main\"\nurl = \"https://github.com/org/name\"\n[repo.secrets]\nSECRET = \"secret\""
@@ -137,7 +128,6 @@ pub fn load_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
         secrets: Arc::new(secrets),
         active_runners: Arc::new(Semaphore::new(config.max_active_runners as usize)),
         config: Arc::new(config),
-        telefy_enabled: false,
     })
 }
 
