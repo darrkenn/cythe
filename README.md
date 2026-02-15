@@ -49,6 +49,8 @@ log_level = "info"
 # Whether or not to continue executing steps if one fails
 continue_on_fail = false
 
+```
+
 ## cythe.yml example
 ```yml
 # Which docker image to run
