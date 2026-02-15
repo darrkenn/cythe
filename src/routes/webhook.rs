@@ -12,6 +12,29 @@ use serde::Deserialize;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 
+#[macro_export]
+macro_rules! build_telefy_message {
+    ($repo_name:expr) => {
+        format!(
+            r#"
+Repo: {},
+Status: Successful
+            "#,
+            $repo_name
+        )
+    };
+    ($repo_name:expr, $step_failed_on:expr) => {
+        format!(
+            r#"
+Repo: {},
+Status: Failed
+Step failed on: {}
+            "#,
+            $repo_name, $step_failed_on
+        )
+    };
+}
+
 #[derive(Deserialize)]
 struct Repository {
     pub full_name: String,
@@ -123,6 +146,15 @@ pub async fn webhook(
                 let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();
                 let pipeline_entry = PipelineEntry::new(repo_name.clone(), logs, failed, date);
 
+                if state.config.telefy.is_some() {
+                    let message = if failed {
+                        build_telefy_message!(repo_name, step_failed_on.unwrap_or("".to_string()))
+                    } else {
+                        build_telefy_message!(repo_name)
+                    };
+                    telefy::message!(message);
+                }
+
                 match database::create_pipeline_entry(pipeline_entry) {
                     Ok(_) => {}
                     Err(e) => {
@@ -132,7 +164,7 @@ pub async fn webhook(
                 "successfully"
             }
             Err(e) => {
-                error!("Runner failed for {}: {e}", repo_name);
+                error!("Runner for {} failed: {e}", repo_name);
                 "unsuccessfully"
             }
         };
@@ -258,6 +290,31 @@ pub async fn webhook_debug(
                 let date = chrono::Local::now().format("%d-%m-%Y %H:%M:%S").to_string();
                 let pipeline_entry = PipelineEntry::new(repo_name.clone(), logs, failed, date);
 
+                if state.config.telefy.is_some() {
+                    let message = if failed {
+                        format!(
+                            r#"
+DEBUG MODE
+{}
+                            "#,
+                            build_telefy_message!(
+                                repo_name,
+                                step_failed_on.unwrap_or("".to_string())
+                            )
+                        )
+                    } else {
+                        format!(
+                            r#"
+DEBUG MODE
+{}
+                            "#,
+                            build_telefy_message!(repo_name)
+                        )
+                    };
+
+                    telefy::message!(message);
+                }
+
                 match database::create_pipeline_entry(pipeline_entry) {
                     Ok(_) => {}
                     Err(e) => {
@@ -267,7 +324,7 @@ pub async fn webhook_debug(
                 "successfully"
             }
             Err(e) => {
-                error!("Runner failed on step for {}: {e}", repo_name);
+                error!("Runner for {} failed: {e}", repo_name);
                 "unsuccessfully"
             }
         };

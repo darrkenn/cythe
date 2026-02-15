@@ -6,6 +6,7 @@ use chrono::Local;
 use lazy_static::lazy_static;
 use log::{LevelFilter, info};
 use std::{env, str::FromStr};
+use telefy::TelefyBot;
 use tera::Tera;
 mod app_state;
 mod database;
@@ -54,6 +55,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repos = app_state.repos.as_ref().to_owned();
     create_tables(repos.keys().cloned().collect())?;
     setup_logger(&app_state.config.log_level).expect("Couldnt setup logger");
+
+    if let Some(telefy_conf) = &app_state.config.telefy {
+        if telefy_conf.enabled {
+            TelefyBot::new(telefy_conf.token.clone(), telefy_conf.chat_id.clone())?;
+        }
+    }
 
     let router = match args.first().map(|s| s.as_str()) {
         None => {
