@@ -53,6 +53,14 @@ use crate::{
     runner::runner,
 };
 
+#[macro_export]
+macro_rules! invalid_request {
+    ($status_code:expr, $warn_message:expr) => {
+        warn!("{}", $warn_message);
+        return ($status_code, "").into_response();
+    };
+}
+
 type HmacSha256 = Hmac<Sha256>;
 
 pub async fn webhook(
@@ -63,27 +71,43 @@ pub async fn webhook(
     let signature = match headers.get("X-Hub-Signature-256") {
         Some(sig) => sig.to_str().unwrap_or(""),
         None => {
-            warn!("Received a request without a X-Hub-Signature");
-            return (StatusCode::UNAUTHORIZED, "").into_response();
+            invalid_request!(
+                StatusCode::UNAUTHORIZED,
+                "Received a request without a X-Hub-Signature"
+            );
         }
     };
     let payload: Payload = match serde_json::from_slice::<Payload>(&body) {
         Ok(p) => p,
-        Err(e) => {
-            warn!("Received a request with invalid json: {e}");
-            return (StatusCode::BAD_REQUEST, "").into_response();
+        Err(_) => {
+            invalid_request!(
+                StatusCode::BAD_REQUEST,
+                "Received a request with invalid json"
+            );
         }
     };
     let repo_name = payload.repository.full_name.clone();
 
+    // Checks if payload repo is allowed
     if !state.repos.contains_key(&repo_name) {
-        return (StatusCode::UNAUTHORIZED, "").into_response();
+        invalid_request!(
+            StatusCode::UNAUTHORIZED,
+            format!("Invalid repo: {}", &repo_name)
+        );
     }
 
     let remote_branch = match payload.r#ref.strip_prefix("refs/heads/") {
         Some(remote_branch) => remote_branch,
-        None => return (StatusCode::BAD_REQUEST).into_response(),
+        None => {
+            invalid_request!(
+                StatusCode::BAD_REQUEST,
+                "Couldn't get remote branch from payload"
+            );
+        }
     };
+
+    // The unwrap() is risky, however the check hashmap check above ensures that an invalid repo will
+    // never reach this point.
     let local_branch = state
         .repos
         .get(&repo_name)
@@ -91,23 +115,24 @@ pub async fn webhook(
         .unwrap();
 
     if local_branch != remote_branch {
-        warn!(
-            "Remote branch {} does not match local branch {}",
-            remote_branch, local_branch
-        );
-        return (StatusCode::UNAUTHORIZED, "").into_response();
+        // Silently return incase request wasn't intentional
+        return (StatusCode::BAD_REQUEST, "").into_response();
     };
 
     let secret = match state.secrets.get(&repo_name) {
         Some(s) => s.trim(),
         None => {
-            warn!("No secret for repo {}", repo_name);
-            return (StatusCode::UNAUTHORIZED, "").into_response();
+            invalid_request!(
+                StatusCode::UNAUTHORIZED,
+                format!("No secret for repo {}", repo_name)
+            );
         }
     };
     if !verify_signature(secret, signature, &body[..]) {
-        warn!("Invalid signature for {}", repo_name);
-        return (StatusCode::UNAUTHORIZED, "").into_response();
+        invalid_request!(
+            StatusCode::UNAUTHORIZED,
+            format!("Invalid signature for {}", repo_name)
+        );
     }
 
     let git_url = state.repos.get(&repo_name).unwrap().url.clone();
