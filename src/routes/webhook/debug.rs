@@ -11,7 +11,7 @@ use crate::{
     build_telefy_message,
     database::{self, PipelineEntry},
     invalid_request,
-    runner::{self, runner},
+    runner::runner,
     yaml::{CytheYAML, parse_yaml, retrieve_yaml},
 };
 
@@ -36,20 +36,24 @@ pub async fn webhook(
     let local_branch = match state.repos.get(&repo_name) {
         Some(ri) => ri.tracked_branch.clone(),
         None => {
-            warn!("Repository {} not found", repo_name);
             warn!(
                 "Available repos: {:?}",
                 state.repos.keys().collect::<Vec<_>>()
             );
-            return (StatusCode::UNAUTHORIZED, "").into_response();
+            invalid_request!(
+                StatusCode::UNAUTHORIZED,
+                format!("Repository {} not found", repo_name)
+            );
         }
     };
     if local_branch != remote_branch {
-        warn!(
-            "Remote branch {} does not match local branch {}",
-            remote_branch, local_branch
+        invalid_request!(
+            StatusCode::UNAUTHORIZED,
+            format!(
+                "Remote branch {} does not match local branch {} on {}",
+                remote_branch, local_branch, repo_name
+            )
         );
-        return (StatusCode::UNAUTHORIZED, "").into_response();
     };
 
     tokio::task::spawn(async move {

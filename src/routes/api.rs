@@ -34,7 +34,7 @@ pub async fn active_runners(
     let max_runners = state.config.max_active_runners;
 
     let stream = stream::repeat_with(move || state.clone()).then(move |state| async move {
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         let available_permits = state.active_runners.available_permits();
         let active_runners = max_runners - available_permits as u8;
