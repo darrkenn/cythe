@@ -10,7 +10,6 @@ use crate::{
     routes::{
         api::{active_runners, latest_entry, max_runners, repos},
         pages::{home, repo},
-        webhook::webhook,
     },
 };
 
@@ -27,7 +26,7 @@ pub fn create_router(app_state: AppState) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/repo", get(repo))
-        .route("/webhook", post(webhook))
+        .route("/webhook", post(webhook::release::webhook))
         .route("/api/max-runners", get(max_runners))
         .route("/api/active-runners", get(active_runners))
         .route("/api/repos", get(repos))
@@ -39,12 +38,10 @@ pub fn create_router(app_state: AppState) -> Router {
 }
 
 pub fn create_router_debug(app_state: AppState) -> Router {
-    use crate::routes::webhook::webhook_debug;
-
     Router::new()
         .route("/", get(home))
         .route("/repo", get(repo))
-        .route("/webhook_debug", post(webhook_debug))
+        .route("/webhook_debug", post(webhook::debug::webhook))
         .route("/api/max-runners", get(max_runners))
         .route("/api/active-runners", get(active_runners))
         .route("/api/repos", get(repos))

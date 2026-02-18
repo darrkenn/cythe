@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     docker::{cleanup_docker, pull_image, run_command, start_container, stop_container},
-    parse_yml::RunStepCommand,
+    yaml::RunStepCommand,
 };
 
 #[derive(Serialize)]
