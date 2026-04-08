@@ -14,7 +14,7 @@ name = "darrkenn/cythe"
 tracked_branch = "main"
 url = "https://github.com/darrkenn/cythe"
 
-# Optionally add secrets
+# Optionally add secrets in this format
 [repo.secrets]
 SECRET = "im secret"
 
